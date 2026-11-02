@@ -88,6 +88,8 @@ class WeekWidget:
         self.scale = min(1.6, max(1.0, dpi / 96))
         self.p = lambda number: max(1, round(number * self.scale))
         self.font = lambda size, bold=False: ("Segoe UI", -self.p(size), "bold" if bold else "normal")
+        self.completed_task_font = tkfont.Font(root=root, font=self.font(10, True))
+        self.completed_task_font.configure(overstrike=True)
         self.first_day = monday(datetime.now(MOSCOW).date())
         self.follow_today = True
         self.calendar, self.events = None, []
@@ -529,6 +531,7 @@ class WeekWidget:
                       tasks_pending=sum(bool(t.pending) for t in self.tasks_items),
                       tasks_grid_count=len(self.task_boxes), tasks_refresh_seconds=120,
                       side_view=self.side_view)
+        report['tasks_native_scroll']=self.tasks_panel.native_scroll.report()
         (ROOT/"status.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
 
     def draw(self):
@@ -551,7 +554,7 @@ class WeekWidget:
         margin = self.p(53)
         day_width = (width-margin)/7
         header = self.p(43)
-        groups = task_groups(self.tasks_items, self.first_day)
+        groups = task_groups(self.tasks_items, self.first_day, completed=True)
         task_rows = min(4, max((len(items) for items in groups), default=0))
         all_day_top = header + (self.p(26)*task_rows+self.p(7) if task_rows else 0)
         self.tasks_panel.update_data(self.tasks_items, self.tasks_state, self.first_day)
@@ -624,12 +627,18 @@ class WeekWidget:
 
     def draw_task(self, task, x, y, width):
         height = self.p(23)
-        self.canvas.create_rectangle(x,y,x+width,y+height,fill='#173535',outline='',tags='task')
+        self.canvas.create_rectangle(x,y,x+width,y+height,
+            fill='#152a2a' if task.completed else '#173535',outline='',tags='task')
         self.canvas.create_rectangle(x+self.p(6),y+self.p(6),x+self.p(17),y+self.p(17),
             outline='#8fe0bf',width=1,tags='task')
+        if task.completed:
+            self.canvas.create_line(x+self.p(8),y+self.p(11),x+self.p(11),y+self.p(14),
+                x+self.p(16),y+self.p(8),fill='#8fe0bf',width=self.p(1),tags='task')
         text = self.fit_line(task.title,width-self.p(29),self.font(10,True))
         self.canvas.create_text(x+self.p(24),y+height/2,text=text,anchor='w',
-            fill='#d9ffef',font=self.font(10,True),tags='task')
+            fill='#92aaa5' if task.completed else '#d9ffef',
+            font=self.completed_task_font if task.completed else self.font(10,True),
+            tags=('task','task-title','task-completed' if task.completed else 'task-active'))
         self.task_boxes.append((x,y,x+width,y+height,task))
 
     def measure_font(self, font):
@@ -738,11 +747,15 @@ class WeekWidget:
 
     def motion(self,event):
         item=self.event_at(event.x,event.y)
+        actionable = bool(item)
+        if isinstance(item, Task):
+            actionable = any(t.id==item.id and x1<=event.x<=x1+self.p(23)
+                             for x1,y1,x2,y2,t in self.task_boxes)
+        self.canvas.configure(cursor="hand2" if actionable else "")
         if item == self.hover:
             return
         self.hide_tip()
         self.hover=item
-        self.canvas.configure(cursor="hand2" if item else "")
         if item:
             self.tip_job=self.root.after(400,lambda:self.show_tip(item,event.x_root,event.y_root))
 
@@ -762,7 +775,8 @@ class WeekWidget:
         tip.attributes("-topmost",True)
         if isinstance(event, Task):
             due = datetime.fromisoformat(event.due).strftime('%d.%m.%Y') if event.due else 'Без даты'
-            details = event.title+'\n'+due+' · без времени\nGoogle Tasks\nНажми, чтобы отметить выполненной.'
+            action = 'Нажми на галочку, чтобы снять отметку.' if event.completed else 'Нажми на галочку, чтобы отметить выполненной.'
+            details = event.title+'\n'+due+' · без времени\nGoogle Tasks\n'+action
             if event.pending:
                 details += '\nОжидает синхронизации'
         elif isinstance(event, DeadlineMarker):
@@ -785,7 +799,9 @@ class WeekWidget:
         if item:
             self.hide_tip()
             if isinstance(item, Task):
-                self.toggle_task(item.id)
+                if any(t.id==item.id and x1<=event.x<=x1+self.p(23)
+                       for x1,y1,x2,y2,t in self.task_boxes):
+                    self.toggle_task(item.id)
                 return
             if isinstance(item, DeadlineMarker):
                 if len(item.items) == 1:
