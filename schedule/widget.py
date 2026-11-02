@@ -27,6 +27,8 @@ from desktop_anchor import DesktopAnchor, bounds as native_bounds, wait_for_desk
 from deadline_core import (STATUS as SHAD_STATUS, BACKGROUND as SHAD_BACKGROUND, SYNC_INTERVAL,
                            DeadlineMarker, week_deadline_markers, load_deadlines, read_json)
 from deadline_panel import DeadlinePanel
+from tasks_core import TaskStore, Task, task_groups
+from tasks_panel import TasksPanel
 
 from app_paths import CODE_ROOT
 
@@ -96,6 +98,13 @@ class WeekWidget:
         self.issue, self.closed = "", False
         self.geometry_data, self.event_boxes = None, []
         self.deadline_boxes, self.week_deadline_markers = [], []
+        self.task_boxes = []
+        self.tasks_store = TaskStore()
+        self.tasks_items = self.tasks_store.items()
+        self.tasks_state = read_json(ROOT/'google-tasks-status.json', {'state':'login_required'})
+        self.tasks_process, self.tasks_signature = None, None
+        self.tasks_last_attempt = 0
+        self.side_view = config.get('side_view', 'tasks')
         self.measure_fonts = {}
         self.hover, self.tooltip, self.tip_job = None, None, None
         self.draw_job, self.drag_start, self.resize_start = None, None, None
@@ -131,6 +140,7 @@ class WeekWidget:
                                      ("Сегодня", self.today, 8),
                                      ("›", lambda:self.change_week(1), 3),
                                      ("↻", lambda:self.refresh(True), 3),
+                                     ("Задачи", self.toggle_tasks, 7),
                                      ("Сроки", self.toggle_deadlines, 6),
                                      ("⚙", self.settings, 3),
                                      ("−", self.minimize, 3),
@@ -142,7 +152,12 @@ class WeekWidget:
         self.body.pack(fill="both", expand=True, padx=1)
         self.deadline_panel = DeadlinePanel(self.body, self.p, self.font,
                                             self.connect_shad, lambda:self.refresh_deadlines(True))
-        if self.config.get("shad_enabled", True):
+        self.tasks_panel = TasksPanel(self.body, self.p, self.font, self.toggle_task,
+                                     self.connect_tasks, lambda:self.refresh_tasks(True))
+        self.tasks_panel.update_data(self.tasks_items, self.tasks_state, self.first_day)
+        if self.side_view == 'tasks':
+            self.tasks_panel.pack(side='right', fill='y', padx=(1, 0))
+        elif self.side_view == 'deadlines' and self.config.get("shad_enabled", True):
             self.deadline_panel.pack(side="right", fill="y", padx=(1, 0))
         self.canvas = tk.Canvas(self.body, bg=BG, highlightthickness=0)
         self.canvas.pack(side="left", fill="both", expand=True)
@@ -267,6 +282,7 @@ class WeekWidget:
 
     def refresh(self, force=False):
         self.refresh_deadlines(force)
+        self.refresh_tasks(force)
         if self.busy:
             return
         self.last_attempt = clock.monotonic()
@@ -291,15 +307,89 @@ class WeekWidget:
         threading.Thread(target=worker,daemon=True).start()
 
     def toggle_deadlines(self):
-        enabled = not self.config.get("shad_enabled", True)
-        self.config["shad_enabled"] = enabled
-        if enabled:
+        self.tasks_panel.pack_forget()
+        if self.side_view != 'deadlines':
+            self.side_view = 'deadlines'
+            self.config['shad_enabled'] = True
             self.deadline_panel.pack(side="right", fill="y", padx=(1, 0), before=self.canvas)
             self.refresh_deadlines(True)
         else:
+            self.side_view = 'none'
             self.deadline_panel.pack_forget()
+        self.config['side_view'] = self.side_view
         save_config(self.config)
         self.queue_draw()
+
+    def toggle_tasks(self):
+        self.deadline_panel.pack_forget()
+        if self.side_view != 'tasks':
+            self.side_view = 'tasks'
+            self.tasks_panel.pack(side='right', fill='y', padx=(1, 0), before=self.canvas)
+        else:
+            self.side_view = 'none'
+            self.tasks_panel.pack_forget()
+        self.config['side_view'] = self.side_view
+        save_config(self.config)
+        self.queue_draw()
+
+    def toggle_task(self, identity):
+        self.tasks_store.toggle(identity)
+        self.tasks_signature = None
+        self.poll_tasks()
+        self.refresh_tasks(True)
+
+    def connect_tasks(self):
+        self.start_tasks_process(login=True)
+
+    def start_tasks_process(self, login=False):
+        if self.tasks_process is not None and self.tasks_process.poll() is None:
+            return
+        self.tasks_last_attempt = clock.monotonic()
+        script = 'tasks_browser.py' if login else 'tasks_background.py'
+        command = [str(Path(sys.executable).with_name('python.exe')), str(ROOT/script)]
+        if login:
+            command.append('--login')
+        try:
+            self.tasks_process = subprocess.Popen(command, cwd=str(ROOT),
+                creationflags=subprocess.CREATE_NO_WINDOW, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.tasks_state = {'state':'connecting' if login else 'syncing'}
+        except OSError:
+            self.tasks_state = {'state':'error'}
+        self.tasks_panel.update_data(self.tasks_items, self.tasks_state, self.first_day)
+
+    def refresh_tasks(self, force=False):
+        if not (ROOT/'google-tasks-connected.flag').exists():
+            return
+        if not force:
+            if clock.monotonic()-self.tasks_last_attempt < 120:
+                return
+            try:
+                checked = datetime.fromisoformat(self.tasks_state.get('checked_at', ''))
+                if (datetime.now(MOSCOW)-checked).total_seconds() < 120:
+                    return
+            except (ValueError, TypeError):
+                pass
+        self.start_tasks_process()
+
+    def poll_tasks(self):
+        if self.tasks_process is not None and self.tasks_process.poll() is not None:
+            self.tasks_process = None
+        paths = [ROOT/'google-tasks-status.json', ROOT/'google-tasks.sqlite3']
+        signature = tuple(p.stat().st_mtime_ns if p.exists() else 0 for p in paths)
+        if signature == self.tasks_signature:
+            return
+        self.tasks_signature = signature
+        previous = self.tasks_items
+        self.tasks_items = self.tasks_store.items()
+        self.tasks_state = read_json(paths[0], {'state':'login_required'})
+        self.tasks_panel.update_data(self.tasks_items, self.tasks_state, self.first_day)
+        if previous != self.tasks_items:
+            self.queue_draw()
+        # An edit made while a sync was finishing must not wait for the next timer.
+        if any(t.pending for t in self.tasks_items) and self.tasks_process is None:
+            if clock.monotonic()-self.tasks_last_attempt >= 10:
+                self.refresh_tasks(True)
 
     def start_shad_process(self, login=False):
         if self.shad_process is not None and self.shad_process.poll() is None:
@@ -376,6 +466,8 @@ class WeekWidget:
             return
         self.poll_deadlines()
         self.refresh_deadlines()
+        self.poll_tasks()
+        self.refresh_tasks()
         try:
             while True:
                 url,calendar,error = self.results.get_nowait()
@@ -433,6 +525,10 @@ class WeekWidget:
                       shad_grid_markers=len(self.week_deadline_markers),
                       shad_panel_visible=bool(self.config.get("shad_enabled", True)))
         report.update(self.anchor.report())
+        report.update(tasks_state=self.tasks_state.get('state'), task_count=len(self.tasks_items),
+                      tasks_pending=sum(bool(t.pending) for t in self.tasks_items),
+                      tasks_grid_count=len(self.task_boxes), tasks_refresh_seconds=120,
+                      side_view=self.side_view)
         (ROOT/"status.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
 
     def draw(self):
@@ -441,6 +537,7 @@ class WeekWidget:
         self.canvas.delete("all")
         self.event_boxes = []
         self.deadline_boxes = []
+        self.task_boxes = []
         width,height = self.canvas.winfo_width(),self.canvas.winfo_height()
         if width < 100 or height < 100:
             return
@@ -454,6 +551,10 @@ class WeekWidget:
         margin = self.p(53)
         day_width = (width-margin)/7
         header = self.p(43)
+        groups = task_groups(self.tasks_items, self.first_day)
+        task_rows = min(4, max((len(items) for items in groups), default=0))
+        all_day_top = header + (self.p(26)*task_rows+self.p(7) if task_rows else 0)
+        self.tasks_panel.update_data(self.tasks_items, self.tasks_state, self.first_day)
         self.week_deadline_markers = week_deadline_markers(self.shad_items, self.first_day)
         all_days = [[e for e in self.events if e.all_day and e.start.date() <= self.first_day+timedelta(days=i) < e.end.date()] for i in range(7)]
         for index in range(7):
@@ -462,7 +563,7 @@ class WeekWidget:
                        if marker.date_only and marker.due.date() == due_day]
             all_days[index] = banners+all_days[index]
         all_day_rows = min(2,max((len(items) for items in all_days),default=0))
-        grid_top = header+(self.p(23)*all_day_rows+self.p(5) if all_day_rows else 0)
+        grid_top = all_day_top+(self.p(23)*all_day_rows+self.p(5) if all_day_rows else 0)
         timed = [e for e in self.events if not e.all_day]
         deadline_times = [marker.due for marker in self.week_deadline_markers if not marker.date_only]
         first_hour = min([8]+[e.start.hour for e in timed]+[due.hour for due in deadline_times])
@@ -480,11 +581,16 @@ class WeekWidget:
             self.canvas.create_text(x+day_width/2,self.p(20),text=f"{DAYS[index]}  {day:%d.%m}",
                                     fill="#89c7ff" if day == today else TEXT,font=self.font(12,True))
             self.canvas.create_line(x,0,x,height,fill=LINE)
+            for k,task in enumerate(groups[index][:4]):
+                self.draw_task(task, x+self.p(3), header+k*self.p(26), day_width-self.p(6))
+            if len(groups[index])>4:
+                self.canvas.create_text(x+day_width-self.p(5), all_day_top-self.p(3),
+                    text=f'+{len(groups[index])-4}', anchor='se', fill='#8fe0bf', font=self.font(9))
             for k,event in enumerate(all_days[index][:2]):
                 if isinstance(event, DeadlineMarker):
-                    self.draw_deadline(event, x+self.p(3), header+k*self.p(23), day_width-self.p(6), banner=True)
+                    self.draw_deadline(event, x+self.p(3), all_day_top+k*self.p(23), day_width-self.p(6), banner=True)
                 else:
-                    self.draw_card(event,x+self.p(3),header+k*self.p(23),day_width-self.p(6),self.p(21),True)
+                    self.draw_card(event,x+self.p(3),all_day_top+k*self.p(23),day_width-self.p(6),self.p(21),True)
             for event,start,end,lane,total in arrange(day_events(self.events,day),day):
                 begin = datetime.combine(day,time.min,MOSCOW)
                 s = (start-begin).total_seconds()/3600
@@ -511,10 +617,20 @@ class WeekWidget:
             self.draw_deadline(marker, margin+index*day_width+self.p(3), y, day_width-self.p(6))
         if self.calendar is None:
             self.canvas.create_text(width/2,height/2,text="Подключаю твой Google Календарь…",fill=MUTED,font=self.font(16),tags="empty")
-        elif not self.events and not self.week_deadline_markers:
+        elif not self.events and not self.week_deadline_markers and not any(groups):
             self.canvas.create_text(width/2,height/2,text="На этой неделе нет занятий",fill=MUTED,font=self.font(16))
         self.draw_now()
         self.update_status()
+
+    def draw_task(self, task, x, y, width):
+        height = self.p(23)
+        self.canvas.create_rectangle(x,y,x+width,y+height,fill='#173535',outline='',tags='task')
+        self.canvas.create_rectangle(x+self.p(6),y+self.p(6),x+self.p(17),y+self.p(17),
+            outline='#8fe0bf',width=1,tags='task')
+        text = self.fit_line(task.title,width-self.p(29),self.font(10,True))
+        self.canvas.create_text(x+self.p(24),y+height/2,text=text,anchor='w',
+            fill='#d9ffef',font=self.font(10,True),tags='task')
+        self.task_boxes.append((x,y,x+width,y+height,task))
 
     def measure_font(self, font):
         if font not in self.measure_fonts:
@@ -574,7 +690,7 @@ class WeekWidget:
         self.canvas.create_rectangle(x,y,x+self.p(3),y+height,fill=edge,outline="")
         pad = self.p(7)
         available = max(0,width-2*pad)
-        title_font = self.font(10 if width < self.p(100) else 12, True)
+        title_font = self.font(10 if width < self.p(100) or height < self.p(48) else 12, True)
         clock_text, clock_font, clock_height = "", self.font(10), 0
         if not all_day and height >= self.p(34):
             full_clock = f"{event.start:%H:%M}–{event.end:%H:%M}"
@@ -585,17 +701,21 @@ class WeekWidget:
                     clock_font = candidate
                     clock_text = full_clock if measure.measure(full_clock) <= available else f"{event.start:%H:%M}\n{event.end:%H:%M}"
                     clock_height = measure.metrics("linespace")*(clock_text.count("\n")+1)
-                    remaining = height-self.p(18)-clock_height
+                    remaining = height-self.p(10)-clock_height
                     if remaining >= self.measure_font(title_font).metrics("linespace") or size == 8:
                         break
-        allowed = height-self.p(10)-(clock_height+self.p(8) if clock_text else 0)
+        allowed = height-self.p(8)-(clock_height+self.p(2) if clock_text else 0)
         lines = max(0,int(allowed//self.measure_font(title_font).metrics("linespace")))
+        if not lines and height >= self.p(20):
+            clock_text = ''
+            allowed = height-self.p(6)
+            lines = max(1,int(allowed//self.measure_font(title_font).metrics('linespace')))
         title = self.wrap_label(short_title(event.title),available,lines,title_font)
         if title:
-            self.canvas.create_text(x+pad,y+self.p(5),text=title,fill=TEXT,
+            self.canvas.create_text(x+pad,y+self.p(4),text=title,fill=TEXT,
                                     anchor="nw",font=title_font,tags="event-title")
         if clock_text:
-            self.canvas.create_text(x+pad,y+height-self.p(6),text=clock_text,fill="#cee0f2",anchor="sw",
+            self.canvas.create_text(x+pad,y+height-self.p(4),text=clock_text,fill="#cee0f2",anchor="sw",
                                     font=clock_font,tags="event-time")
         self.event_boxes.append((x,y,x+width,y+height,event))
 
@@ -613,7 +733,7 @@ class WeekWidget:
             self.canvas.create_oval(x-self.p(3),y-self.p(3),x+self.p(3),y+self.p(3),fill="#f27f8e",outline="",tags="now")
 
     def event_at(self,x,y):
-        boxes = self.event_boxes+self.deadline_boxes
+        boxes = self.event_boxes+self.deadline_boxes+self.task_boxes
         return next((event for x1,y1,x2,y2,event in reversed(boxes) if x1<=x<=x2 and y1<=y<=y2),None)
 
     def motion(self,event):
@@ -640,7 +760,12 @@ class WeekWidget:
         tip=tk.Toplevel(self.root,bg=LINE)
         tip.overrideredirect(True)
         tip.attributes("-topmost",True)
-        if isinstance(event, DeadlineMarker):
+        if isinstance(event, Task):
+            due = datetime.fromisoformat(event.due).strftime('%d.%m.%Y') if event.due else 'Без даты'
+            details = event.title+'\n'+due+' · без времени\nGoogle Tasks\nНажми, чтобы отметить выполненной.'
+            if event.pending:
+                details += '\nОжидает синхронизации'
+        elif isinstance(event, DeadlineMarker):
             clock_text = event.due.strftime("%d.%m.%Y")+(" · день сдачи" if event.date_only else event.due.strftime(" · %H:%M · Москва"))
             details = "Дедлайн · "+clock_text+"\n\n"+"\n\n".join(
                 item.title+"\n"+item.course for item in event.items)
@@ -659,6 +784,9 @@ class WeekWidget:
         item=self.event_at(event.x,event.y)
         if item:
             self.hide_tip()
+            if isinstance(item, Task):
+                self.toggle_task(item.id)
+                return
             if isinstance(item, DeadlineMarker):
                 if len(item.items) == 1:
                     webbrowser.open(item.items[0].url)
