@@ -78,6 +78,7 @@ class App:
         self.last_status = None
         self.job = None
         self.error = ""
+        self.stats = None
         self.root.title("Учебный таймер")
         self.root.configure(bg=BG)
         self.root.minsize(self.p(350), self.p(430))
@@ -131,7 +132,8 @@ class App:
         subhead = tk.Frame(root, bg=BG)
         subhead.pack(fill="x", padx=self.p(22), pady=(0, self.p(7)))
         self.label(subhead, "КАТЕГОРИИ", 9, color=MUTED, bold=True).pack(side="left")
-        self.label(subhead, "За день / всего", 9, color=MUTED).pack(side="right")
+        self.stats_button = self.button(subhead, "Статистика ↗", self.show_stats, small=True)
+        self.stats_button.pack(side="right")
         self.list = CategoryList(root, self)
         self.list.pack(fill="both", expand=True, padx=self.p(16))
         self.empty = tk.Frame(self.list.inner, bg=BG)
@@ -140,7 +142,7 @@ class App:
         self.button(self.empty, "+ Добавить категорию", self.edit_category).pack(pady=self.p(20))
         footer = tk.Frame(root, bg=BG)
         footer.pack(fill="x", padx=self.p(22), pady=(self.p(12), self.p(15)))
-        self.label(footer, "История сохраняется автоматически", 9, color=MUTED).pack(side="left")
+        self.label(footer, "Сохраняется автоматически", 9, color=MUTED).pack(side="left")
         self.button(footer, "Сегодня", self.today, small=True).pack(side="right")
         self.menu = tk.Menu(root, tearoff=False, bg=PANEL, fg=TEXT, activebackground=LINE,
                             activeforeground=TEXT, font=("Segoe UI", 10))
@@ -232,6 +234,32 @@ class App:
     def wrap_rows(self, width):
         for row in self.rows.values():
             row["title"].configure(wraplength=max(self.p(65), width-self.p(230)))
+
+    def show_stats(self):
+        if self.stats is None:
+            from stats_window import StatsWindow
+            self.stats = StatsWindow(self)
+        else:
+            self.stats.window.deiconify()
+            self.stats.refresh(force=True)
+        self.stats.window.lift()
+        self.stats.window.focus_force()
+
+    def restore_session(self,state):
+        """Continue a fresh update handoff without counting sleep or lost time twice."""
+        from datetime import datetime
+        stamp = datetime.fromisoformat(state['created_at'])
+        age = (now_moscow()-stamp).total_seconds()
+        gap = self.timer.clock()-float(state['awake_seconds'])
+        if not (0<=age<=120 and 0<=gap<=120):
+            return False
+        self.timer.start(int(state['category']))
+        self.timer.session_seconds = max(0,float(state['session_seconds']))
+        self.timer._last = float(state['awake_seconds'])
+        self.timer.checkpoint()
+        self.refresh()
+        self.write_status()
+        return True
 
     def select(self, cid):
         self.timer.selected = cid
@@ -386,7 +414,14 @@ class App:
             except OSError:
                 pass
             self.show()
+        stats_request = self.folder / "stats.request"
+        if stats_request.exists():
+            stats_request.unlink()
+            self.show()
+            self.show_stats()
         self.refresh()
+        if self.stats is not None and self.stats.window.state()=='normal':
+            self.stats.refresh()
         state = (self.timer.active, len(self.categories), self.root.state())
         if state != self.last_status:
             self.write_status()
@@ -417,6 +452,8 @@ class App:
         self.root.lift()
         self.root.focus_force()
         self.refresh()
+        if self.stats:
+            self.stats.restore()
         self.write_status()
 
     def hide(self):
@@ -427,6 +464,8 @@ class App:
         except Exception:
             self.show_error("Не удалось сохранить время. Оставь приложение открытым.")
             return
+        if self.stats:
+            self.stats.hide()
         self.root.withdraw()
         self.write_status()
 
@@ -442,6 +481,8 @@ class App:
             self.root.after_cancel(self.job)
         if self.native:
             self.native.stop()
+        if self.stats:
+            self.stats.close()
         self.write_status()
         self.store.close()
         self.root.destroy()
@@ -450,6 +491,8 @@ class App:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume-category", type=int, default=None)
+    parser.add_argument("--resume-state", type=Path)
+    parser.add_argument("--statistics", action='store_true')
     args = parser.parse_args()
     dpi_setup()
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -466,6 +509,12 @@ def main():
         return
     root = tk.Tk()
     app = App(root, resume_category=args.resume_category)
+    if args.resume_state is not None:
+        state = json.loads(args.resume_state.read_text(encoding='utf-8'))
+        if app.restore_session(state):
+            args.resume_state.replace(args.resume_state.with_suffix('.consumed.json'))
+    if args.statistics:
+        app.show_stats()
 
     def tk_error(kind, value, trace):
         import traceback
