@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ctypes
+import argparse
 from ctypes import wintypes
 from datetime import timedelta
 import json
@@ -62,7 +63,7 @@ class CategoryList(tk.Frame):
 
 
 class App:
-    def __init__(self, root, folder=ROOT, timer=None, native=True):
+    def __init__(self, root, folder=ROOT, timer=None, native=True, resume_category=None):
         self.root, self.folder = root, Path(folder)
         self.folder.mkdir(parents=True, exist_ok=True)
         self.store = timer.store if timer else Store(self.folder / "study-time.sqlite3")
@@ -141,9 +142,19 @@ class App:
         footer.pack(fill="x", padx=self.p(22), pady=(self.p(12), self.p(15)))
         self.label(footer, "История сохраняется автоматически", 9, color=MUTED).pack(side="left")
         self.button(footer, "Сегодня", self.today, small=True).pack(side="right")
-        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.menu = tk.Menu(root, tearoff=False, bg=PANEL, fg=TEXT, activebackground=LINE,
+                            activeforeground=TEXT, font=("Segoe UI", 10))
+        self.menu.add_command(label="Скрыть (Win + 2)", command=self.hide)
+        self.menu.add_separator()
+        self.menu.add_command(label="Завершить и остановить таймер", command=self.close)
+        more = self.button(footer, "⋯", lambda: self.menu.tk_popup(more.winfo_rootx(), more.winfo_rooty()), small=True)
+        more.pack(side="right", padx=self.p(6))
+        self.root.protocol("WM_DELETE_WINDOW", self.hide)
         self.root.bind("<MouseWheel>", self.wheel, add="+")
         self.reload_categories()
+        if resume_category is not None:
+            self.timer.start(resume_category)
+            self.refresh()
         self.root.update_idletasks()
         if native and os.name == "nt":
             from native_scroll import NativeStudyScroll
@@ -374,11 +385,9 @@ class App:
                 request.unlink()
             except OSError:
                 pass
-            self.root.deiconify()
-            self.root.lift()
-            self.root.focus_force()
+            self.show()
         self.refresh()
-        state = (self.timer.active, len(self.categories))
+        state = (self.timer.active, len(self.categories), self.root.state())
         if state != self.last_status:
             self.write_status()
             self.last_status = state
@@ -387,7 +396,9 @@ class App:
     def write_status(self):
         hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id()) if os.name == "nt" else self.root.winfo_id()
         status = dict(pid=os.getpid(), window_handle=hwnd, category_count=len(self.categories),
-                      running=self.timer.active is not None)
+                      running=self.timer.active is not None, active_category=self.timer.active,
+                      session_seconds=self.timer.session_seconds,
+                      visible=self.root.state() not in ("withdrawn", "iconic"))
         path = self.folder / "status.json"
         try:
             temp = path.with_suffix(".tmp")
@@ -396,11 +407,33 @@ class App:
         except OSError:
             pass
 
+    def save_geometry(self):
+        if self.root.state() != "withdrawn":
+            self.store.set_setting("geometry", json.dumps([self.root.winfo_width(), self.root.winfo_height(),
+                                                            self.root.winfo_x(), self.root.winfo_y()]))
+
+    def show(self):
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+        self.refresh()
+        self.write_status()
+
+    def hide(self):
+        try:
+            self.timer.tick()
+            self.timer.flush()
+            self.save_geometry()
+        except Exception:
+            self.show_error("Не удалось сохранить время. Оставь приложение открытым.")
+            return
+        self.root.withdraw()
+        self.write_status()
+
     def close(self):
         try:
             self.timer.pause()
-            self.store.set_setting("geometry", json.dumps([self.root.winfo_width(), self.root.winfo_height(),
-                                                            self.root.winfo_x(), self.root.winfo_y()]))
+            self.save_geometry()
         except Exception:
             messagebox.showerror("Учебный таймер", "Не удалось сохранить время. Окно оставлено открытым — попробуй ещё раз.", parent=self.root)
             return
@@ -415,6 +448,9 @@ class App:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resume-category", type=int, default=None)
+    args = parser.parse_args()
     dpi_setup()
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
@@ -429,7 +465,7 @@ def main():
         kernel.CloseHandle(mutex)
         return
     root = tk.Tk()
-    app = App(root)
+    app = App(root, resume_category=args.resume_category)
 
     def tk_error(kind, value, trace):
         import traceback
