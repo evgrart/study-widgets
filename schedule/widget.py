@@ -7,7 +7,7 @@ import subprocess
 import sys
 import threading
 import time as clock
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from urllib.parse import urlsplit
 import webbrowser
 import winreg
@@ -27,8 +27,11 @@ from desktop_anchor import DesktopAnchor, bounds as native_bounds, wait_for_desk
 from deadline_core import (STATUS as SHAD_STATUS, BACKGROUND as SHAD_BACKGROUND, SYNC_INTERVAL,
                            DeadlineMarker, week_deadline_markers, load_deadlines, read_json)
 from deadline_panel import DeadlinePanel
-from tasks_core import TaskStore, Task, task_groups
+from tasks_core import TaskStore, Task, task_groups, TASKS_SYNC_INTERVAL
 from tasks_panel import TasksPanel
+from calendar_layout import task_layout, work_area
+from calendar_scroll import CalendarScroll
+from page_transitions import PageStack
 
 from app_paths import CODE_ROOT
 
@@ -88,11 +91,18 @@ class WeekWidget:
         self.scale = min(1.6, max(1.0, dpi / 96))
         self.p = lambda number: max(1, round(number * self.scale))
         self.font = lambda size, bold=False: ("Segoe UI", -self.p(size), "bold" if bold else "normal")
-        self.completed_task_font = tkfont.Font(root=root, font=self.font(10, True))
+        # Preserve pixel units: Font(font=...) converts the size to points, which
+        # scales differently from unfinished tasks when Windows changes DPI.
+        self.completed_task_font = tkfont.Font(root=root,font=self.font(10,True))
         self.completed_task_font.configure(overstrike=True)
         self.first_day = monday(datetime.now(MOSCOW).date())
-        self.follow_today = True
+        try:
+            if os.environ.get('WEEKLY_WIDGET_RESUME_WEEK'):
+                self.first_day=monday(date.fromisoformat(os.environ['WEEKLY_WIDGET_RESUME_WEEK']))
+        except ValueError:pass
+        self.follow_today = self.first_day==monday(datetime.now(MOSCOW).date())
         self.calendar, self.events = None, []
+        self.events_key = None
         self.results, self.busy = queue.Queue(), False
         self.checked_at, self.last_attempt = None, 0
         self.successful_refreshes = 0
@@ -106,11 +116,15 @@ class WeekWidget:
         self.tasks_state = read_json(ROOT/'google-tasks-status.json', {'state':'login_required'})
         self.tasks_process, self.tasks_signature = None, None
         self.tasks_last_attempt = 0
-        self.side_view = config.get('side_view', 'tasks')
+        self.side_view = 'deadlines' if config.get('side_view')=='deadlines' and config.get('shad_enabled',True) else 'tasks'
         self.measure_fonts = {}
         self.hover, self.tooltip, self.tip_job = None, None, None
         self.draw_job, self.drag_start, self.resize_start = None, None, None
         self.settings_window = None
+        self.maximized = bool(config.get('maximized',True))
+        self.windowed_bounds = None
+        self.content_height = 0
+        self.task_rows = 0
         self.shad_process, self.shad_signature = None, None
         self.shad_last_attempt = 0
         self.shad_items, self.shad_updated_at = load_deadlines()
@@ -131,6 +145,7 @@ class WeekWidget:
             config["wide_layout_version"] = 1
         x, y = max(0, min(x, sw-width)), max(0, min(y, sh-height))
         self.root.geometry(f"{width}x{height}+{x}+{y}")
+        self.windowed_bounds = [x,y,width,height]
         self.header = tk.Frame(root, bg=PANEL, height=self.p(46))
         self.header.pack(fill="x", padx=1, pady=(1, 0))
         self.header.pack_propagate(False)
@@ -142,27 +157,33 @@ class WeekWidget:
                                      ("Сегодня", self.today, 8),
                                      ("›", lambda:self.change_week(1), 3),
                                      ("↻", lambda:self.refresh(True), 3),
-                                     ("Задачи", self.toggle_tasks, 7),
-                                     ("Сроки", self.toggle_deadlines, 6),
-                                     ("⚙", self.settings, 3),
+                                     ("Задания" if self.side_view=='deadlines' else "Дедлайны", self.toggle_side_view, 9),
                                      ("−", self.minimize, 3),
+                                     ("□", self.toggle_maximize, 3),
                                      ("×", self.close, 3)]:
-            tk.Button(controls, text=text, command=action, width=width, bg=PANEL, fg=MUTED,
+            button=tk.Button(controls, text=text, command=action, width=width, bg=PANEL, fg=MUTED,
                       activebackground="#2b3b50", activeforeground=TEXT, font=self.font(14),
-                      relief="flat", bd=0, cursor="hand2", takefocus=False).pack(side="left", padx=1)
+                      relief="flat", bd=0, cursor="hand2", takefocus=False)
+            button.pack(side="left", padx=1)
+            if action==self.toggle_side_view:
+                self.side_button=button
         self.body = tk.Frame(root, bg=BG)
         self.body.pack(fill="both", expand=True, padx=1)
-        self.deadline_panel = DeadlinePanel(self.body, self.p, self.font,
+        self.side_holder=tk.Frame(self.body,bg=PANEL,width=self.p(285))
+        self.side_holder.pack(side='right',fill='y',padx=(1,0));self.side_holder.pack_propagate(False)
+        self.side_stack=PageStack(self.side_holder)
+        self.deadline_panel = DeadlinePanel(self.side_holder, self.p, self.font,
                                             self.connect_shad, lambda:self.refresh_deadlines(True))
-        self.tasks_panel = TasksPanel(self.body, self.p, self.font, self.toggle_task,
+        self.tasks_panel = TasksPanel(self.side_holder, self.p, self.font, self.toggle_task,
                                      self.connect_tasks, lambda:self.refresh_tasks(True))
         self.tasks_panel.update_data(self.tasks_items, self.tasks_state, self.first_day)
         if self.side_view == 'tasks':
-            self.tasks_panel.pack(side='right', fill='y', padx=(1, 0))
+            self.side_stack.show(self.tasks_panel,animate=False)
         elif self.side_view == 'deadlines' and self.config.get("shad_enabled", True):
-            self.deadline_panel.pack(side="right", fill="y", padx=(1, 0))
+            self.side_stack.show(self.deadline_panel,animate=False)
         self.canvas = tk.Canvas(self.body, bg=BG, highlightthickness=0)
         self.canvas.pack(side="left", fill="both", expand=True)
+        self.calendar_scroll = CalendarScroll(self.canvas,self.p,self.hide_tip)
         self.deadline_panel.update_data(self.shad_items, self.shad_state, self.shad_updated_at)
         footer = tk.Frame(root, bg=PANEL, height=self.p(27))
         footer.pack(fill="x", padx=1, pady=(0, 1))
@@ -179,6 +200,7 @@ class WeekWidget:
             element.bind("<ButtonPress-1>", self.start_drag)
             element.bind("<B1-Motion>", self.drag)
             element.bind("<ButtonRelease-1>", self.remember_bounds)
+            element.bind("<Double-Button-1>",lambda event:self.toggle_maximize())
         self.canvas.bind("<Configure>", self.queue_draw)
         self.canvas.bind("<Motion>", self.motion)
         self.canvas.bind("<Leave>", lambda event:self.hide_tip())
@@ -187,12 +209,14 @@ class WeekWidget:
         self.root.bind("<Right>", lambda event:self.change_week(1))
         self.root.bind("<Escape>", lambda event:self.hide_tip())
         self.root.bind("<Control-r>", lambda event:self.refresh(True))
+        self.root.bind("<F11>",lambda event:self.toggle_maximize())
         self.menu = tk.Menu(root, tearoff=0, bg=PANEL, fg=TEXT)
         self.menu.add_command(label="Обновить", command=lambda:self.refresh(True))
         self.menu.add_command(label="Открыть Google Календарь", command=self.open_google)
         self.menu.add_command(label="Настройки", command=self.settings)
         self.menu.add_separator()
         self.menu.add_command(label="Закрыть виджет", command=self.close)
+        self.menu.add_command(label="Завершить приложение", command=self.quit)
         root.bind("<Button-3>", lambda event:self.menu.tk_popup(event.x_root,event.y_root))
         try:
             self.root.iconbitmap(str(CODE_ROOT / "widget.ico"))
@@ -206,6 +230,8 @@ class WeekWidget:
         ctypes.windll.user32.SetWindowLongW(self.hwnd, -20, (style | 0x40000) & ~0x80)
         self.anchor = DesktopAnchor(self.hwnd)
         self.apply_window_mode()
+        if self.maximized:
+            self.fit_to_work_area()
         try:
             cached = cache_path(config["feed_url"])
             self.calendar = parse_calendar(cached.read_bytes())
@@ -213,17 +239,40 @@ class WeekWidget:
             self.issue = "Проверяю обновления"
         except (OSError, ValueError, KeyError):
             pass
-        self.root.after(100, self.refresh)
-        self.root.after(400, self.show)
+        self.root.after(500, self.refresh)
+        self.root.after_idle(self.show)
+        self.root.after(80, self.poll_requests)
         self.root.after(200, self.tick)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.draw()
 
     def remember_bounds(self, event=None):
-        self.config["bounds"] = native_bounds(self.hwnd)
+        self.config['maximized'] = self.maximized
+        if not self.maximized:
+            self.windowed_bounds = native_bounds(self.hwnd)
+        self.config["bounds"] = self.windowed_bounds
         save_config(self.config)
 
+    def fit_to_work_area(self):
+        x,y,width,height = work_area(self.hwnd)
+        self.root.geometry(f'{width}x{height}{x:+d}{y:+d}')
+        self.queue_draw()
+
+    def toggle_maximize(self):
+        if self.maximized:
+            self.maximized = False
+            x,y,width,height = self.windowed_bounds
+            self.root.geometry(f'{width}x{height}{x:+d}{y:+d}')
+        else:
+            self.windowed_bounds = native_bounds(self.hwnd)
+            self.maximized = True
+            self.fit_to_work_area()
+        self.remember_bounds()
+
     def start_drag(self, event):
+        if self.maximized:
+            self.drag_start = None
+            return
         x,y,_,_=native_bounds(self.hwnd)
         self.drag_start = (event.x_root, event.y_root, x, y)
 
@@ -233,9 +282,14 @@ class WeekWidget:
             self.root.geometry(f"+{max(0,wx+event.x_root-x)}+{max(0,wy+event.y_root-y)}")
 
     def start_resize(self, event):
+        if self.maximized:
+            self.resize_start = None
+            return
         self.resize_start = (event.x_root,event.y_root,self.root.winfo_width(),self.root.winfo_height())
 
     def resize(self, event):
+        if self.resize_start is None:
+            return
         x,y,w,h = self.resize_start
         self.root.geometry(f"{max(self.p(720),w+event.x_root-x)}x{max(self.p(350),h+event.y_root-y)}")
 
@@ -243,9 +297,24 @@ class WeekWidget:
         self.anchor.minimize()
 
     def show(self):
+        if self.root.state()=='withdrawn':
+            self.root.deiconify()
         self.anchor.show()
         if not self.anchor.enabled:
             self.root.lift()
+        self.write_health()
+
+    def poll_requests(self):
+        if self.closed:
+            return
+        for name,action in [('exit.request',self.quit),('show.request',self.show)]:
+            request=ROOT/name
+            if request.exists():
+                try:request.unlink()
+                except OSError:continue
+                action()
+                if self.closed:return
+        self.root.after(80,self.poll_requests)
 
     def apply_window_mode(self):
         enabled=bool(self.config.get("desktop_mode"))
@@ -258,10 +327,19 @@ class WeekWidget:
             self.issue="Не удалось закрепиться на рабочем столе — повторю автоматически"
 
     def close(self):
+        """Hide the loaded window so the next hotkey opens it immediately."""
+        self.remember_bounds()
+        self.hide_tip()
+        self.anchor.hidden=True
+        ctypes.windll.user32.ShowWindow(self.hwnd,0)
+        self.write_health()
+
+    def quit(self):
         self.remember_bounds()
         if self.shad_process is not None and self.shad_process.poll() is None:
             (ROOT / "shad-stop.request").touch()
         self.closed = True
+        self.calendar_scroll.stop()
         self.root.destroy()
 
     def open_google(self):
@@ -270,11 +348,13 @@ class WeekWidget:
     def change_week(self, offset):
         self.first_day += timedelta(days=7*offset)
         self.follow_today = self.first_day == monday(datetime.now(MOSCOW).date())
+        self.canvas.yview_moveto(0)
         self.draw()
 
     def today(self):
         self.first_day = monday(datetime.now(MOSCOW).date())
         self.follow_today = True
+        self.canvas.yview_moveto(0)
         self.draw()
 
     def queue_draw(self, event=None):
@@ -308,31 +388,29 @@ class WeekWidget:
                 self.results.put((url,None,type(error).__name__))
         threading.Thread(target=worker,daemon=True).start()
 
-    def toggle_deadlines(self):
-        self.tasks_panel.pack_forget()
-        if self.side_view != 'deadlines':
-            self.side_view = 'deadlines'
-            self.config['shad_enabled'] = True
-            self.deadline_panel.pack(side="right", fill="y", padx=(1, 0), before=self.canvas)
-            self.refresh_deadlines(True)
+    def toggle_side_view(self):
+        if self.side_view=='deadlines':
+            self.toggle_tasks()
         else:
-            self.side_view = 'none'
-            self.deadline_panel.pack_forget()
+            self.toggle_deadlines()
+
+    def toggle_deadlines(self):
+        self.side_view = 'deadlines'
+        self.config['shad_enabled'] = True
+        self.side_stack.show(self.deadline_panel,direction=1)
+        self.side_button.configure(text='Задания')
+        self.refresh_deadlines()
         self.config['side_view'] = self.side_view
         save_config(self.config)
-        self.queue_draw()
+        self.update_status()
 
     def toggle_tasks(self):
-        self.deadline_panel.pack_forget()
-        if self.side_view != 'tasks':
-            self.side_view = 'tasks'
-            self.tasks_panel.pack(side='right', fill='y', padx=(1, 0), before=self.canvas)
-        else:
-            self.side_view = 'none'
-            self.tasks_panel.pack_forget()
+        self.side_view = 'tasks'
+        self.side_stack.show(self.tasks_panel,direction=-1)
+        self.side_button.configure(text='Дедлайны')
         self.config['side_view'] = self.side_view
         save_config(self.config)
-        self.queue_draw()
+        self.update_status()
 
     def toggle_task(self, identity):
         self.tasks_store.toggle(identity)
@@ -348,7 +426,7 @@ class WeekWidget:
             return
         self.tasks_last_attempt = clock.monotonic()
         script = 'tasks_browser.py' if login else 'tasks_background.py'
-        command = [str(Path(sys.executable).with_name('python.exe')), str(ROOT/script)]
+        command = [str(Path(sys.executable).with_name('python.exe')), str(CODE_ROOT/script)]
         if login:
             command.append('--login')
         try:
@@ -361,14 +439,15 @@ class WeekWidget:
         self.tasks_panel.update_data(self.tasks_items, self.tasks_state, self.first_day)
 
     def refresh_tasks(self, force=False):
-        if not (ROOT/'google-tasks-connected.flag').exists():
+        if not (ROOT/'google-tasks-connected.flag').exists() and not (force and (ROOT/'google-tasks-profile').exists()):
             return
         if not force:
-            if clock.monotonic()-self.tasks_last_attempt < 120:
+            interval=30 if self.tasks_state.get('retryable') else TASKS_SYNC_INTERVAL
+            if clock.monotonic()-self.tasks_last_attempt < interval:
                 return
             try:
                 checked = datetime.fromisoformat(self.tasks_state.get('checked_at', ''))
-                if (datetime.now(MOSCOW)-checked).total_seconds() < 120:
+                if (datetime.now(MOSCOW)-checked).total_seconds() < interval:
                     return
             except (ValueError, TypeError):
                 pass
@@ -450,18 +529,17 @@ class WeekWidget:
             self.queue_draw()
 
     def update_status(self):
-        if self.busy:
-            text = "Google Календарь · проверяю обновления…"
-        elif self.issue:
-            text = self.issue
-            if self.checked_at:
-                text += " · сохранённая копия " + self.checked_at.strftime("%H:%M")
-        elif self.checked_at:
-            text = "Google Календарь · обновлено " + self.checked_at.strftime("%H:%M")
-            text += f" · каждые {self.config['refresh_seconds']//60} мин"
-        else:
-            text = "Подключаю Google Календарь…"
-        self.status.configure(text=text,fg="#e5b674" if self.issue and not self.busy else MUTED)
+        deadlines=self.side_view=='deadlines'
+        text='Дедлайны · обновление раз в час' if deadlines else 'Задания · обновление раз в 2 минуты'
+        state=(self.shad_state if deadlines else self.tasks_state).get('state','login_required')
+        detail={'login_required':'требуется вход','connecting':'подключаю…','syncing':'обновляю…',
+                'busy':'обновляю…','error':'нет обновления','unsupported':'нет обновления'}.get(state)
+        if detail:text+=' · '+detail
+        if self.issue and not self.busy and self.calendar is None:
+            text+=' · '+self.issue
+        color='#e5b674' if state in {'error','unsupported','login_required'} else MUTED
+        if self.status.cget('text')!=text or self.status.cget('fg')!=color:
+            self.status.configure(text=text,fg=color)
 
     def tick(self):
         if self.closed:
@@ -470,6 +548,7 @@ class WeekWidget:
         self.refresh_deadlines()
         self.poll_tasks()
         self.refresh_tasks()
+        self.update_status()
         try:
             while True:
                 url,calendar,error = self.results.get_nowait()
@@ -491,19 +570,13 @@ class WeekWidget:
             pass
         if not self.busy and clock.monotonic()-self.last_attempt >= self.config["refresh_seconds"]:
             self.refresh()
-        request = ROOT / "show.request"
-        if request.exists():
-            try:
-                request.unlink()
-            except OSError:
-                pass
-            self.show()
-        if self.geometry_data:
+        if self.geometry_data and not self.anchor.hidden:
             self.draw_now()
         attached=self.anchor.maintain()
         if attached and self.issue=="Не удалось закрепиться на рабочем столе — повторю автоматически":
             self.issue=""
             self.update_status()
+        self.tasks_panel.refresh_day()
         current_week = monday(datetime.now(MOSCOW).date())
         if self.follow_today and self.first_day != current_week:
             self.first_day = current_week
@@ -529,9 +602,11 @@ class WeekWidget:
         report.update(self.anchor.report())
         report.update(tasks_state=self.tasks_state.get('state'), task_count=len(self.tasks_items),
                       tasks_pending=sum(bool(t.pending) for t in self.tasks_items),
-                      tasks_grid_count=len(self.task_boxes), tasks_refresh_seconds=120,
+                      tasks_grid_count=len(self.task_boxes), tasks_refresh_seconds=TASKS_SYNC_INTERVAL,
                       side_view=self.side_view)
         report['tasks_native_scroll']=self.tasks_panel.native_scroll.report()
+        report.update(maximized=self.maximized,tasks_grid_rows=self.task_rows,
+                      calendar_content_height=self.content_height,calendar_viewport_height=self.canvas.winfo_height())
         (ROOT/"status.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
 
     def draw(self):
@@ -541,13 +616,18 @@ class WeekWidget:
         self.event_boxes = []
         self.deadline_boxes = []
         self.task_boxes = []
-        width,height = self.canvas.winfo_width(),self.canvas.winfo_height()
+        width,viewport_height = self.canvas.winfo_width(),self.canvas.winfo_height()
+        height = viewport_height
+        view_top = max(0,self.canvas.canvasy(0))
         if width < 100 or height < 100:
             return
         last = self.first_day+timedelta(days=6)
         self.range_label.configure(text=f"{self.first_day.day} {MONTHS[self.first_day.month-1]} — {last.day} {MONTHS[last.month-1]}  {last.year}")
         try:
-            self.events = week_events(self.calendar,self.first_day) if self.calendar else []
+            key=(id(self.calendar),self.first_day)
+            if key!=self.events_key:
+                self.events = week_events(self.calendar,self.first_day) if self.calendar else []
+                self.events_key=key
         except Exception:
             self.issue = "Не удалось развернуть повторения календаря"
             self.events = []
@@ -555,8 +635,6 @@ class WeekWidget:
         day_width = (width-margin)/7
         header = self.p(43)
         groups = task_groups(self.tasks_items, self.first_day, completed=True)
-        task_rows = min(4, max((len(items) for items in groups), default=0))
-        all_day_top = header + (self.p(26)*task_rows+self.p(7) if task_rows else 0)
         self.tasks_panel.update_data(self.tasks_items, self.tasks_state, self.first_day)
         self.week_deadline_markers = week_deadline_markers(self.shad_items, self.first_day)
         all_days = [[e for e in self.events if e.all_day and e.start.date() <= self.first_day+timedelta(days=i) < e.end.date()] for i in range(7)]
@@ -566,6 +644,12 @@ class WeekWidget:
                        if marker.date_only and marker.due.date() == due_day]
             all_days[index] = banners+all_days[index]
         all_day_rows = min(2,max((len(items) for items in all_days),default=0))
+        extra_top = self.p(23)*all_day_rows+self.p(5) if all_day_rows else 0
+        self.task_rows,all_day_top,height = task_layout(groups,viewport_height,header,self.p(26),self.p(7),
+                                                       extra_top,self.p(280),self.p(15))
+        self.content_height = height
+        self.canvas.configure(scrollregion=(0,0,width,height))
+        self.canvas.yview_moveto(view_top/height)
         grid_top = all_day_top+(self.p(23)*all_day_rows+self.p(5) if all_day_rows else 0)
         timed = [e for e in self.events if not e.all_day]
         deadline_times = [marker.due for marker in self.week_deadline_markers if not marker.date_only]
@@ -584,11 +668,8 @@ class WeekWidget:
             self.canvas.create_text(x+day_width/2,self.p(20),text=f"{DAYS[index]}  {day:%d.%m}",
                                     fill="#89c7ff" if day == today else TEXT,font=self.font(12,True))
             self.canvas.create_line(x,0,x,height,fill=LINE)
-            for k,task in enumerate(groups[index][:4]):
+            for k,task in enumerate(groups[index]):
                 self.draw_task(task, x+self.p(3), header+k*self.p(26), day_width-self.p(6))
-            if len(groups[index])>4:
-                self.canvas.create_text(x+day_width-self.p(5), all_day_top-self.p(3),
-                    text=f'+{len(groups[index])-4}', anchor='se', fill='#8fe0bf', font=self.font(9))
             for k,event in enumerate(all_days[index][:2]):
                 if isinstance(event, DeadlineMarker):
                     self.draw_deadline(event, x+self.p(3), all_day_top+k*self.p(23), day_width-self.p(6), banner=True)
@@ -634,16 +715,16 @@ class WeekWidget:
         if task.completed:
             self.canvas.create_line(x+self.p(8),y+self.p(11),x+self.p(11),y+self.p(14),
                 x+self.p(16),y+self.p(8),fill='#8fe0bf',width=self.p(1),tags='task')
-        text = self.fit_line(task.title,width-self.p(29),self.font(10,True))
+        font=self.completed_task_font if task.completed else self.font(10,True)
+        text = self.fit_line(task.title,width-self.p(29),font)
         self.canvas.create_text(x+self.p(24),y+height/2,text=text,anchor='w',
             fill='#92aaa5' if task.completed else '#d9ffef',
-            font=self.completed_task_font if task.completed else self.font(10,True),
+            font=font,
             tags=('task','task-title','task-completed' if task.completed else 'task-active'))
         self.task_boxes.append((x,y,x+width,y+height,task))
 
-    def measure_font(self, font):
-        if font not in self.measure_fonts:
-            self.measure_fonts[font] = tkfont.Font(root=self.root, font=font)
+    def measure_font(self,font):
+        if font not in self.measure_fonts:self.measure_fonts[font]=tkfont.Font(root=self.root,font=font)
         return self.measure_fonts[font]
 
     def fit_line(self, text, width, font):
@@ -746,12 +827,16 @@ class WeekWidget:
         return next((event for x1,y1,x2,y2,event in reversed(boxes) if x1<=x<=x2 and y1<=y<=y2),None)
 
     def motion(self,event):
-        item=self.event_at(event.x,event.y)
+        x,y=self.canvas.canvasx(event.x),self.canvas.canvasy(event.y)
+        item=self.event_at(x,y)
         actionable = bool(item)
         if isinstance(item, Task):
-            actionable = any(t.id==item.id and x1<=event.x<=x1+self.p(23)
+            actionable = any(t.id==item.id and x1<=x<=x1+self.p(23)
                              for x1,y1,x2,y2,t in self.task_boxes)
-        self.canvas.configure(cursor="hand2" if actionable else "")
+        cursor="hand2" if actionable else ""
+        if cursor!=getattr(self,'pointer_cursor',None):
+            self.canvas.configure(cursor=cursor)
+            self.pointer_cursor=cursor
         if item == self.hover:
             return
         self.hide_tip()
@@ -795,11 +880,12 @@ class WeekWidget:
         self.tooltip=tip
 
     def click_event(self,event):
-        item=self.event_at(event.x,event.y)
+        x,y=self.canvas.canvasx(event.x),self.canvas.canvasy(event.y)
+        item=self.event_at(x,y)
         if item:
             self.hide_tip()
             if isinstance(item, Task):
-                if any(t.id==item.id and x1<=event.x<=x1+self.p(23)
+                if any(t.id==item.id and x1<=x<=x1+self.p(23)
                        for x1,y1,x2,y2,t in self.task_boxes):
                     self.toggle_task(item.id)
                 return
@@ -888,6 +974,7 @@ def main():
         host=wait_for_desktop()
         lifecycle("desktop_ready" if host else "desktop_wait_timeout_will_retry")
     root=tk.Tk()
+    root.withdraw()
     root.tk.call("tk","scaling",1.0)
     app=WeekWidget(root,config)
     lifecycle("mainloop")
