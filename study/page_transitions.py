@@ -4,7 +4,7 @@ import tkinter as tk
 
 
 class PageStack:
-    def __init__(self,parent,duration=0):
+    def __init__(self,parent,duration=145):
         self.parent=parent;self.duration=duration/1000
         self.current=None;self.previous=None;self.job=None
         parent.bind('<Destroy>',lambda e:self.stop() if e.widget is parent else None,add='+')
