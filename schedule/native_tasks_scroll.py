@@ -1,4 +1,4 @@
-"""Windows wheel/pan input for the category list, before Tk can discard it.
+"""Windows wheel/pan input for the Tasks pane, before Tk can discard it.
 
 All other windows and all input outside this pane are passed through untouched.
 Callbacks only queue scroll distances; the Tk thread applies them during its idle loop.
@@ -74,10 +74,20 @@ class NativeTasksScroll:
         self.closed=False
         self.pan_y=None
         self.last_wheel=0
-        self.stats=dict(raw_wheels=0,window_wheels=0,pans=0,legacy_scrolls=0,applied=0)
+        self.stats=dict(raw_wheels=0,window_wheels=0,pans=0,legacy_scrolls=0,applied=0,python_move_callbacks=0)
         self._mouse_proc=MOUSEPROC(self.mouse_message)
         self._window_proc=SUBCLASSPROC(self.window_message)
-        self.hook=u.SetWindowsHookExW(14,self._mouse_proc,k.GetModuleHandleW(None),0)
+        self.bridge=None
+        self._dispatch_proc=self._window_proc
+        self._dispatch_data=0
+        try:
+            from native_wheel import NativeWheel
+            self.bridge=NativeWheel(self.panel_handle)
+            self._dispatch_proc=SUBCLASSPROC(self.bridge.subclass_address)
+            self._dispatch_data=ctypes.cast(self._window_proc,ctypes.c_void_p).value
+            self.hook=self.bridge.token
+        except OSError:
+            self.hook=u.SetWindowsHookExW(14,self._mouse_proc,k.GetModuleHandleW(None),0)
         self._map_binding=self.root.bind('<Map>',self.mapped,add='+')
         self._attach_job=self.root.after_idle(self.attach_tree)
         self._pump_job=self.root.after(15,self.drain)
@@ -109,9 +119,10 @@ class NativeTasksScroll:
         return u.CallNextHookEx(None,code,message,data)
 
     def window_message(self,hwnd,message,param,data,identity,reference):
+        if message==0x200:self.stats['python_move_callbacks']+=1
         try:
             if message==0x82:  # WM_NCDESTROY
-                c.RemoveWindowSubclass(hwnd,self._window_proc,self.identity)
+                c.RemoveWindowSubclass(hwnd,self._dispatch_proc,self.identity)
                 self.handles.discard(hwnd)
             elif message==0x20A:
                 x,y=ctypes.c_short(data&0xffff).value,ctypes.c_short((data>>16)&0xffff).value
@@ -156,7 +167,7 @@ class NativeTasksScroll:
             u.GetWindowThreadProcessId(hwnd,ctypes.byref(owner))
             if owner.value!=self.process or hwnd in self.handles:
                 return
-            if c.SetWindowSubclass(hwnd,self._window_proc,self.identity,0):
+            if c.SetWindowSubclass(hwnd,self._dispatch_proc,self.identity,self._dispatch_data):
                 self.handles.add(hwnd)
                 config=GestureConfig(4,1|2|16,4)  # Pan vertically, including inertia.
                 u.SetGestureConfig(hwnd,0,1,ctypes.byref(config),ctypes.sizeof(config))
@@ -173,7 +184,7 @@ class NativeTasksScroll:
             visit(self.root)
             wrapper=u.GetAncestor(self.root.winfo_id(),2)
             if wrapper and wrapper not in self.handles:
-                if c.SetWindowSubclass(wrapper,self._window_proc,self.identity,0):
+                if c.SetWindowSubclass(wrapper,self._dispatch_proc,self.identity,self._dispatch_data):
                     self.handles.add(wrapper)
 
     def mapped(self,event):
@@ -183,6 +194,11 @@ class NativeTasksScroll:
         self._pump_job=None
         if self.closed:
             return
+        if self.bridge:
+            for delta in self.bridge.poll():
+                self.events.append(('wheel',delta))
+                self.last_wheel=time.monotonic()
+                self.stats['raw_wheels']+=1
         for _ in range(min(200,len(self.events))):
             kind,amount=self.events.popleft()
             if kind=='wheel':
@@ -195,18 +211,21 @@ class NativeTasksScroll:
         self._pump_job=self.root.after(15,self.drain)
 
     def report(self):
-        return dict(active=not self.closed,raw_hook=bool(self.hook),subclassed_windows=len(self.handles),**self.stats)
+        return dict(active=not self.closed,raw_hook=bool(self.hook),subclassed_windows=len(self.handles),
+                    input_backend='native-thread' if self.bridge else 'python-fallback',
+                    hook_thread_id=self.bridge.thread_id if self.bridge else None,**self.stats)
 
     def stop(self):
         if self.closed:
             return
         self.closed=True
         if self.hook:
-            u.UnhookWindowsHookEx(self.hook)
+            if self.bridge:self.bridge.close()
+            else:u.UnhookWindowsHookEx(self.hook)
             self.hook=None
         for hwnd in list(self.handles):
             if u.IsWindow(hwnd):
-                c.RemoveWindowSubclass(hwnd,self._window_proc,self.identity)
+                c.RemoveWindowSubclass(hwnd,self._dispatch_proc,self.identity)
         self.handles.clear()
         for job in (self._pump_job,self._attach_job):
             if job:
