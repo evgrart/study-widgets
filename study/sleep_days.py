@@ -191,7 +191,7 @@ class SleepStore:
     def save(self,bed=None,wake=None,record_id=None,day=None):
         bed,wake=stamp(bed),stamp(wake);now=self.wall().astimezone(MOSCOW)
         if bed is None and wake is None:raise ValueError('Укажи хотя бы время пробуждения или сна.')
-        if (wake and wake>now+timedelta(minutes=1)) or (bed and bed>now+timedelta(minutes=1)):
+        if wake and wake>now+timedelta(minutes=1):
             raise ValueError('Это время ещё не наступило. Проверь выбранный день.')
         if bed and wake and bed<wake:raise ValueError('Время сна должно быть после пробуждения.')
         selected_day=date.fromisoformat(str(day)) if day else (wake or bed).date()
