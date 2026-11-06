@@ -139,7 +139,7 @@ def close_setup_browser(driver):
 def sync_in_background(driver):
     """Background jobs never reuse a visible tab or fall back to a headed window."""
     close_setup_browser(driver)
-    context=driver.chromium.launch_persistent_context(str(PROFILE),channel='msedge',headless=False,
+    context=driver.chromium.launch_persistent_context(str(PROFILE),channel='msedge',headless=True,
         locale='en-US',viewport={'width':1500,'height':1100},timeout=30000,
         args=['--no-first-run','--no-default-browser-check','--disable-extensions'],accept_downloads=False)
     try:
