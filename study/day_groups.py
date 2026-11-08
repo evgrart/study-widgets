@@ -13,10 +13,14 @@ class DayGroups:
     def nights(self):return {r[0] for r in self.db.execute('SELECT day FROM sleepless_nights')}
 
     def start(self,day):
-        return date.fromisoformat(str(day))
+        day=date.fromisoformat(str(day));nights=self.nights()
+        while (day-timedelta(days=1)).isoformat() in nights:day-=timedelta(days=1)
+        return day
 
     def end(self,day):
-        return self.start(day)
+        day=self.start(day);nights=self.nights()
+        while day.isoformat() in nights:day+=timedelta(days=1)
+        return day
 
     def set(self,day,enabled):
         day=date.fromisoformat(str(day)).isoformat()
