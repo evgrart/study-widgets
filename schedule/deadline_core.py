@@ -196,6 +196,15 @@ def parse_due(text, now=None):
     text = ' '.join(text.split()).casefold()
     if text in {'', '—', '-', 'не указан', 'без срока', 'срок не указан'}:
         return None, False
+    relative=re.fullmatch(r'(сегодня|завтра|вчера)(?:\s+(\d{1,2}):(\d{2}))?',text)
+    if relative:
+        now=now or datetime.now(MOSCOW)
+        day=now.astimezone(MOSCOW).date()+timedelta(days={'сегодня':0,'завтра':1,'вчера':-1}[relative[1]])
+        try:
+            due=datetime.combine(day,time(int(relative[2] or 0),int(relative[3] or 0)),MOSCOW)
+        except ValueError as error:
+            raise UnsupportedPage('invalid_deadline') from error
+        return due,relative[2] is None
     match = re.fullmatch(r'(\d{1,2})\s+([а-яё]+)\s+(\d{4})(?:\s+(\d{1,2}):(\d{2}))?', text)
     if not match or match[2] not in MONTHS:
         raise UnsupportedPage('unrecognized_deadline')
