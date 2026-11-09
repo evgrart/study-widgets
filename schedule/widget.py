@@ -530,7 +530,7 @@ class WeekWidget:
 
     def update_status(self):
         deadlines=self.side_view=='deadlines'
-        text='Дедлайны · обновление раз в час' if deadlines else 'Задания · обновление раз в 2 минуты'
+        text='Дедлайны · обновление раз в час' if deadlines else 'Задания · обновление раз в час'
         state=(self.shad_state if deadlines else self.tasks_state).get('state','login_required')
         detail={'login_required':'требуется вход','connecting':'подключаю…','syncing':'обновляю…',
                 'busy':'обновляю…','error':'нет обновления','unsupported':'нет обновления'}.get(state)

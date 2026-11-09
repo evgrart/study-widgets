@@ -8,7 +8,7 @@ import sqlite3
 
 from app_paths import ROOT, CODE_ROOT
 DATABASE = ROOT / 'google-tasks.sqlite3'
-TASKS_SYNC_INTERVAL = 120
+TASKS_SYNC_INTERVAL = 3600
 
 
 @dataclass(frozen=True)
