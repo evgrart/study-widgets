@@ -91,6 +91,11 @@ def parse_due(label, today=None):
     return value.isoformat()
 
 
+def parse_calendar_date(label):
+    """The selected day in Google's date picker includes the exact year."""
+    found=re.search(r'\b(\d{1,2})\s+('+'|'.join(MONTHS)+r')\s+(\d{4})\b',label)
+    if not found:raise UnsupportedTasksPage('unknown_selected_date')
+    return date(int(found[3]),MONTHS.index(found[2])+1,int(found[1]))
 
 
 def is_own_debugger(process, profile=PROFILE):
@@ -266,6 +271,10 @@ class TasksBrowser:
                 if read_dates and task['completed'] and not task['date_label']:
                     task['date_label']=self.completed_date_label(task['remote_id'])
                     task['due_known']=True
+                if read_dates and task['date_label']:
+                    try:parse_due(task['date_label'])
+                    except UnsupportedTasksPage:
+                        task['date_label']=self.exact_date_label(task['remote_id'])
                 task.update(list_id=section['list_id'], list_title=section['list_title'],
                             due=parse_due(task['date_label']) if read_dates else None)
                 result.append(task)
@@ -305,7 +314,32 @@ class TasksBrowser:
             # Blur without editing the title/date or toggling completion.
             row.locator('xpath=ancestor::*[@data-num-completed][1]').locator('h2').click()
 
+    def exact_date_label(self, remote_id):
+        row=self.row(remote_id)
+        row.locator('[data-aria-label="Task title"]').click()
+        try:
+            button=row.locator('[role="button"][aria-label^="Scheduled for "]')
+            button.wait_for(state='visible')
+            return self.picker_date_label(button)
+        finally:
+            row.locator('xpath=ancestor::*[@data-num-completed][1]').locator('h2').click()
 
+    def picker_date_label(self, button):
+        """Read the selected date instead of guessing Google's rounded 'weeks ago'."""
+        button.click()
+        dialog=self.page.get_by_role('dialog',name='Date picker',exact=True)
+        dialog.wait_for()
+        try:
+            selected=dialog.locator('button[data-date-num][aria-pressed="true"]')
+            selected.wait_for(state='visible')
+            label=selected.evaluate(r'''e=>(e.getAttribute('aria-labelledby')||'').split(/\s+/)
+                .map(id=>document.getElementById(id)?.textContent||'').join(' ')''')
+            value=parse_calendar_date(label)
+            return f'Scheduled for {MONTHS[value.month-1]} {value.day}, {value.year}'
+        finally:
+            # No dates are selected or saved; this is a read-only inspection.
+            dialog.get_by_role('button',name='Cancel',exact=True).click()
+            dialog.wait_for(state='hidden')
 
     def row(self, remote_id):
         # IDs are observed Google row IDs, not code or selectors supplied by tasks.
@@ -322,7 +356,7 @@ class TasksBrowser:
         while time.monotonic()<finish:
             try:
                 # Expand/reload rows, without opening every completed task's date editor.
-                self.snapshot()
+                self.snapshot(read_dates=False)
                 check=self.row(task.remote_id).get_by_role('button',name=re.compile('^Mark completed:'))
                 if check.count() and (check.get_attribute('aria-pressed')=='true')==task.completed:
                     return
@@ -376,22 +410,62 @@ class TasksBrowser:
 
 
 def synchronize(page):
-    browser=TasksBrowser(page);browser.ready();store=TaskStore()
-    remote,lists=browser.snapshot();store.merge(remote,lists);sent=[]
+    started=time.monotonic()
+    browser = TasksBrowser(page)
+    browser.ready()
+    store = TaskStore()
+    queued=store.items()
+    # Send checkbox changes before the comparatively expensive completed-date reads.
+    # Never merge a snapshot without dates: new completed tasks might have due dates.
+    send_first=any(t.pending=='status' for t in queued) and not any(t.pending=='create' for t in queued)
+    remote, lists = browser.snapshot(read_dates=not send_first)
+    if not send_first:store.merge(remote, lists)
+    observed={(t['list_id'],t['remote_id']) for t in remote}
+    sent=[]
+    changed=False
     for item in store.items():
-        task=store.get(item.id)
-        if task.pending=='create':
-            remote_id=browser.create(task);store.link(task.id,remote_id,-1);task=store.get(task.id)
-        if task.pending=='status':browser.set_completed(task);sent.append(task)
-        state('syncing',count=len(store.items()))
-    browser.ready();remote,lists=browser.snapshot()
+        task = store.get(item.id)
+        if task is None:continue
+        if task.pending == 'create':
+            if send_first:
+                remote, lists=browser.snapshot()
+                store.merge(remote, lists)
+                observed={(t['list_id'],t['remote_id']) for t in remote}
+                task=store.get(task.id)
+                send_first=False
+                # A full snapshot may recover a creation from an interrupted sync.
+                if task.pending!='create':
+                    if task.pending=='status':
+                        browser.set_completed(task);sent.append(task);changed=True
+                    continue
+            remote_id = browser.create(task)
+            changed=True
+            # Keep a queued status until a fresh server page confirms persistence.
+            store.link(task.id, remote_id, -1)
+            task = store.get(task.id)
+            observed.add((task.list_id,task.remote_id))
+        if task.pending == 'status':
+            if (task.list_id,task.remote_id) not in observed:
+                raise UnsupportedTasksPage('queued_task_missing')
+            browser.set_completed(task)
+            sent.append(task)
+            changed=True
+            state('syncing', count=len(store.items()))
+    # Reload confirms persistence on Google's side and includes outside edits.
+    # A read-only refresh already has a full fresh snapshot; do not read it twice.
+    if changed or send_first:
+        browser.ready()
+        remote, lists = browser.snapshot()
     for task in sent:
         confirmed=next((r for r in remote if r['remote_id']==task.remote_id and r['list_id']==task.list_id),None)
-        if not confirmed or confirmed['completed']!=task.completed:raise UnsupportedTasksPage('server_did_not_confirm_change')
+        if not confirmed or confirmed['completed']!=task.completed:
+            raise UnsupportedTasksPage('server_did_not_confirm_change')
         store.acknowledge(task.id,task.revision)
-    store.merge(remote,lists);AUTH.touch()
-    state('ok',count=len(store.items()),pending=sum(bool(t.pending) for t in store.items()),updated_at=datetime.now(MOSCOW).isoformat())
-
+    store.merge(remote, lists)
+    pending = sum(bool(t.pending) for t in store.items())
+    AUTH.touch()
+    state('ok', count=len(store.items()), pending=pending,
+          updated_at=datetime.now(MOSCOW).isoformat(),elapsed_seconds=round(time.monotonic()-started,2))
 
 
 def main(attach=False, login=False):
