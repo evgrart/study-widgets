@@ -14,14 +14,14 @@ class CategoryActions:
         window.overrideredirect(True)
         window.transient(app.root)
         window.configure(bg=LINE)
-        body=tk.Frame(window,bg=PANEL,padx=p(14),pady=p(12))
+        body=tk.Frame(window,bg=PANEL,padx=p(10),pady=p(6))
         body.pack(fill='both',expand=True,padx=1,pady=1)
         self.summary=tk.Label(body,text='',
                               bg=PANEL,fg=MUTED,font=('Segoe UI',9),anchor='w')
-        self.action=tk.Button(body,text='Очистить за день',command=self.clear,
+        self.action=tk.Button(body,text='Очистить',command=self.clear,
             bg=PANEL,fg='#F1A0AA',activebackground='#3A2931',activeforeground='#FFD6DC',
             disabledforeground=MUTED,bd=0,relief='flat',anchor='w',cursor='hand2',
-            font=('Segoe UI',10),padx=p(8),pady=p(8))
+            font=('Segoe UI',10),padx=p(8),pady=p(3))
         self.action.pack(fill='x')
         if app.timer.category_time(category['id'],day)<=0:self.action.configure(state='disabled')
         self.outside_binding=app.root.bind('<Button-1>',lambda event:self.close(),add='+')
