@@ -280,7 +280,7 @@ class App:
                 title.configure(anchor="w", justify="left", cursor="hand2")
                 title.pack(side="left", fill="both", expand=True, padx=self.p(13), pady=self.p(12))
                 for target in (row, title, daily, numbers):
-                    target.bind("<Button-1>", lambda e, c=cid: self.select(c))
+                    target.bind("<Button-1>", lambda e, c=cid: self.show_category_actions(c))
                     target.bind("<Button-3>", lambda e, c=cid: self.show_category_actions(c))
                     target.bind("<Double-Button-1>", lambda e, c=cid: self.edit_category(c))
                 self.rows[cid] = dict(row=row, stripe=stripe, title=title, numbers=numbers,
@@ -334,8 +334,23 @@ class App:
         self.store.set_setting("selected", cid)
         self.refresh()
 
+    def close_category_actions(self):
+        if self.category_actions:self.category_actions.close()
 
+    def show_category_actions(self,cid):
+        self.close_category_actions()
+        self.select(cid)
+        category=next((c for c in self.categories if c['id']==cid),None)
+        if category is None or self.root.grab_current():return
+        from category_actions import CategoryActions
+        self.category_actions=CategoryActions(self,category,self.day,self.rows[cid]['row'])
+        return 'break'
 
+    def category_time_changed(self):
+        self.refresh()
+        if self.stats:self.stats.refresh(force=True)
+        if self.sleep_page:self.sleep_page.refresh(force=True)
+        self.write_status()
 
     def toggle_selected(self):
         active_day = self.timer.active_day or now_moscow().date()

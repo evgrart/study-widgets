@@ -115,6 +115,15 @@ class Store:
         return {(r["category_id"], r["day"]): r["seconds"]
                 for r in self.db.execute("SELECT * FROM daily_totals")}
 
+    def clear_category_day(self, category_id, day):
+        start,end=str(self.groups.start(day)),str(self.groups.end(day))
+        with self.db:
+            removed={(row['category_id'],row['day']):row['seconds'] for row in self.db.execute(
+                'SELECT * FROM daily_totals WHERE category_id=? AND day BETWEEN ? AND ?',
+                (category_id,start,end))}
+            self.db.execute('DELETE FROM daily_totals WHERE category_id=? AND day BETWEEN ? AND ?',
+                            (category_id,start,end))
+        return removed
 
     def setting(self, key, default=None):
         row = self.db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
@@ -194,7 +203,27 @@ class Timer:
         if time.monotonic() - self._saved_at >= 5:
             self.flush()
 
+    def clear_category_day(self, category_id, day):
+        selected=self.store.groups.start(day)
+        if category_id not in {c['id'] for c in self.store.categories()}:
+            raise ValueError('Категория не найдена.')
+        self.tick()
+        self.flush()
+        removed=self.store.clear_category_day(category_id,day)
+        for key in removed:self.totals.pop(key,None)
+        active_day=self.active_day or self.wall().astimezone(MOSCOW).date()
+        if self.active==category_id and self.store.groups.start(active_day)==selected:
+            self.active=None
+            self.active_day=None
+            self.session_seconds=0.0
+        return removed
 
+    def restore_category_time(self, amounts):
+        self.tick()
+        self.flush()
+        self.store.add_time(amounts)
+        for key,seconds in amounts.items():
+            self.totals[key]=self.totals.get(key,0.0)+seconds
 
     def category_time(self, category_id, day=None):
         selected=str(self.store.groups.start(day)) if day is not None else None
