@@ -18,8 +18,7 @@ class TasksPanel(tk.Frame):
     def __init__(self, parent, p, font, toggle, connect, refresh):
         super().__init__(parent, bg=PANEL, width=p(285))
         self.p, self.font, self.toggle, self.connect = p, font, toggle, connect
-        self.completed_font = tkfont.Font(root=self,font=font(12))
-        self.completed_font.configure(overstrike=True)
+        self.completed_font = font(12) + ('overstrike',)
         self.pack_propagate(False)
         self.items, self.state, self.first_day = [], {}, date.today()
         header = tk.Frame(self, bg=PANEL)

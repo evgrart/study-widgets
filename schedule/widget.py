@@ -93,8 +93,7 @@ class WeekWidget:
         self.font = lambda size, bold=False: ("Segoe UI", -self.p(size), "bold" if bold else "normal")
         # Preserve pixel units: Font(font=...) converts the size to points, which
         # scales differently from unfinished tasks when Windows changes DPI.
-        self.completed_task_font = tkfont.Font(root=root,font=self.font(10,True))
-        self.completed_task_font.configure(overstrike=True)
+        self.completed_task_font = self.font(10, True) + ('overstrike',)
         self.first_day = monday(datetime.now(MOSCOW).date())
         try:
             if os.environ.get('WEEKLY_WIDGET_RESUME_WEEK'):
@@ -723,8 +722,13 @@ class WeekWidget:
             tags=('task','task-title','task-completed' if task.completed else 'task-active'))
         self.task_boxes.append((x,y,x+width,y+height,task))
 
-    def measure_font(self,font):
-        if font not in self.measure_fonts:self.measure_fonts[font]=tkfont.Font(root=self.root,font=font)
+    def measure_font(self, font):
+        if font not in self.measure_fonts:
+            styles=' '.join(font[2:]).split()
+            self.measure_fonts[font] = tkfont.Font(root=self.root,family=font[0],size=font[1],
+                weight='bold' if 'bold' in styles else 'normal',
+                slant='italic' if 'italic' in styles else 'roman',
+                overstrike='overstrike' in styles)
         return self.measure_fonts[font]
 
     def fit_line(self, text, width, font):
