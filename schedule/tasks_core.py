@@ -75,6 +75,9 @@ class TaskStore:
             for index, entry in enumerate(entries):
                 if not isinstance(entry.get('title'),str) or not entry['title'].strip():
                     raise ValueError('empty_task_title')
+                if entry.get('due') is not None:
+                    if not isinstance(entry['due'],str) or date.fromisoformat(entry['due']).isoformat()!=entry['due']:
+                        raise ValueError('invalid_task_due')
                 identity = 'local-' + hashlib.sha256(f'{key}/{index}'.encode()).hexdigest()[:24]
                 db.execute('''INSERT OR IGNORE INTO tasks(id,title,due,pending)
                               VALUES(?,?,?,'create')''', (identity, entry['title'], entry.get('due')))

@@ -48,3 +48,9 @@ class Hardening(unittest.TestCase):
         store=self.store()
         with self.assertRaises(ValueError):store.seed([{'title':'   ','due':None}])
         self.assertEqual(store.items(),[])
+
+    def test_seed_due_validation(self):
+        store=self.store()
+        with self.assertRaises(ValueError):
+            store.seed([{'title':'Valid','due':None},{'title':'Invalid','due':'2026-02-30'}])
+        self.assertEqual(store.items(),[])
