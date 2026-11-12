@@ -65,3 +65,15 @@ class Hardening(unittest.TestCase):
         events=[calendar.Appointment('outside','Old',start-timedelta(days=2),start-timedelta(days=1)),
         calendar.Appointment('invalid','Reversed',start,start-timedelta(hours=1))]
         self.assertEqual(calendar.arrange(events,day),[])
+
+    def test_linear_overlap_grouping(self):
+        class Counted(datetime):
+            comparisons=0
+            def __gt__(self,other):
+                Counted.comparisons+=1
+                return super().__gt__(other)
+        day=date(2026,11,2);start=Counted(2026,11,2,10,tzinfo=calendar.MOSCOW)
+        end=Counted(2026,11,2,12,tzinfo=calendar.MOSCOW)
+        events=[calendar.Appointment(str(i),str(i),start,end) for i in range(80)]
+        self.assertEqual(len(calendar.arrange(events,day)),80)
+        self.assertLess(Counted.comparisons,80*8)

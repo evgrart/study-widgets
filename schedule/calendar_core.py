@@ -93,8 +93,9 @@ def arrange(events, day):
         if current and item[1] >= limit:
             groups.append(current)
             current = []
+            limit = None
         current.append(item)
-        limit = max([x[2] for x in current])
+        limit = item[2] if limit is None else max(limit,item[2])
     if current:
         groups.append(current)
     result = []
