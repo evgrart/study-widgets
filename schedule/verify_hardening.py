@@ -77,3 +77,8 @@ class Hardening(unittest.TestCase):
         events=[calendar.Appointment(str(i),str(i),start,end) for i in range(80)]
         self.assertEqual(len(calendar.arrange(events,day)),80)
         self.assertLess(Counted.comparisons,80*8)
+
+    def test_blank_calendar_summary(self):
+        payload=b'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:empty\r\nDTSTART:20261102T100000\r\nDTEND:20261102T110000\r\nSUMMARY:   \r\nEND:VEVENT\r\nEND:VCALENDAR\r\n'
+        events=calendar.week_events(calendar.parse_calendar(payload),date(2026,11,2))
+        self.assertEqual(events[0].title,'Без названия')

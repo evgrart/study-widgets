@@ -70,7 +70,7 @@ def week_events(calendar, first_day):
             start = start.replace(tzinfo=MOSCOW) if start.tzinfo is None else start.astimezone(MOSCOW)
             end = end or start + event.decoded("DURATION", timedelta(minutes=30))
             end = end.replace(tzinfo=MOSCOW) if end.tzinfo is None else end.astimezone(MOSCOW)
-        result.append(Appointment(str(event.get("UID", "")), str(event.get("SUMMARY", "Без названия")),
+        result.append(Appointment(str(event.get("UID", "")), (str(event.get("SUMMARY", "")).strip() or "Без названия"),
                                   start, end, all_day))
     return sorted(result, key=lambda e: (e.start, e.end, e.title))
 
