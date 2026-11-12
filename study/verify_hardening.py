@@ -53,3 +53,8 @@ class Hardening(unittest.TestCase):
         for value in [math.nan,math.inf,None,'bad']:
             self.assertEqual(format_time(value),'—')
         self.assertEqual(format_time(-5),'00:00:00')
+
+    def test_minimum_group_date(self):
+        store,cid=self.setup_store()
+        self.assertEqual(store.groups.start(date.min),date.min)
+        self.assertEqual(store.groups.end(date.min),date.min)

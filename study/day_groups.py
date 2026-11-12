@@ -14,7 +14,7 @@ class DayGroups:
 
     def start(self,day):
         day=date.fromisoformat(str(day));nights=self.nights()
-        while (day-timedelta(days=1)).isoformat() in nights:day-=timedelta(days=1)
+        while day>date.min and (day-timedelta(days=1)).isoformat() in nights:day-=timedelta(days=1)
         return day
 
     def end(self,day):
