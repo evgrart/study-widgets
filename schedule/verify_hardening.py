@@ -54,3 +54,7 @@ class Hardening(unittest.TestCase):
         with self.assertRaises(ValueError):
             store.seed([{'title':'Valid','due':None},{'title':'Invalid','due':'2026-02-30'}])
         self.assertEqual(store.items(),[])
+
+    def test_toggle_deleted_task(self):
+        store=self.store()
+        with self.assertRaises(ValueError):store.toggle('missing')

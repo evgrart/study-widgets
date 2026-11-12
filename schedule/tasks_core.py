@@ -66,9 +66,10 @@ class TaskStore:
 
     def toggle(self, identity):
         with self.connection() as db:
-            db.execute('''UPDATE tasks SET completed=1-completed, revision=revision+1,
+            updated=db.execute('''UPDATE tasks SET completed=1-completed, revision=revision+1,
                 pending=CASE WHEN remote_id IS NULL THEN 'create' ELSE 'status' END
                 WHERE id=? AND deleted=0''', (identity,))
+            if updated.rowcount!=1:raise ValueError('task_not_found')
 
     def seed(self, entries, key='study-plan-2026-11-02'):
         with self.connection() as db:
