@@ -90,6 +90,10 @@ class TaskStore:
     def merge(self, remote, complete_lists=()):
         """Keep queued local changes; merge a complete, authenticated remote snapshot."""
         remote=list(remote)
+        for row in remote:
+            if row.get('due') is not None:
+                if not isinstance(row['due'],str) or date.fromisoformat(row['due']).isoformat()!=row['due']:
+                    raise ValueError('invalid_remote_due')
         complete_lists=set(complete_lists)
         with self.connection() as db:
             # Recover safely after a process exit between remote creation and acknowledgement.

@@ -38,3 +38,8 @@ class Hardening(unittest.TestCase):
         store.merge([self.remote(list_id='a/b',remote_id='c'),self.remote(list_id='a',remote_id='b/c')])
         self.assertEqual(len(store.items()),2)
         self.assertEqual(len({t.id for t in store.items()}),2)
+
+    def test_remote_due_validation(self):
+        store=self.store();store.merge([self.remote()]);before=store.items()
+        with self.assertRaises(ValueError):store.merge([self.remote(due='not-a-date')],['list'])
+        self.assertEqual(store.items(),before)
