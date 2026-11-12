@@ -27,3 +27,8 @@ class Hardening(unittest.TestCase):
         item=store.items()[0]
         self.assertFalse(item.pending)
         self.assertEqual(item.remote_id,'task')
+
+    def test_complete_lists_iterator(self):
+        store=self.store();store.merge([self.remote(remote_id=str(i),list_id='a') for i in range(3)],['a'])
+        store.merge([],iter(['a']))
+        self.assertEqual(store.items(),[])
