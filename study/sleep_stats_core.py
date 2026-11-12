@@ -19,6 +19,7 @@ def timing(values):
 
 
 def sleep_report(data,start,end,study_totals,days_off=()):
+    days_off=tuple(days_off)
     if start==end:start=end=data.groups.start(start)
     episodes=[e for e in data.episodes() if start<=date.fromisoformat(e['day'])<=end]
     days=[start+timedelta(days=i) for i in range((end-start).days+1)]

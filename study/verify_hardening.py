@@ -64,3 +64,9 @@ class Hardening(unittest.TestCase):
         with self.assertRaises(ValueError):store.groups.set(date.max,True)
         with store.db:store.db.execute('INSERT INTO sleepless_nights VALUES(?)',(str(date.max),))
         self.assertEqual(store.groups.end(date.max),date.max)
+
+    def test_sleep_days_off_iterator(self):
+        store,cid=self.setup_store();data=SleepStore(store.db,wall=lambda:datetime(2026,11,3,12,tzinfo=MOSCOW))
+        day=date(2026,11,2)
+        report=sleep_report(data,day,day,{},iter([str(day)]))
+        self.assertEqual(report['off_days'],(str(day),))
