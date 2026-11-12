@@ -12,6 +12,7 @@ def main():
     config_path=paths.ROOT/'config.json'
     try:config=json.loads(config_path.read_text(encoding='utf-8-sig'))
     except (OSError,ValueError):config={}
+    if not isinstance(config,dict):config={}
     url=getpass('Google Calendar secret iCal URL (blank: keep current): ').strip()
     if url:
         parsed=urlsplit(url)

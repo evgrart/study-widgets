@@ -166,3 +166,13 @@ class Hardening(unittest.TestCase):
             privacy.main()
         self.assertEqual(privacy.check('README.md',b'noreply@github.com'),[])
         self.assertIn('non-example email address',privacy.check('README.md',b'person'+b'@'+b'private.test'))
+
+    def test_configure_invalid_shape(self):
+        import sys,os
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+        import configure
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'config.json';path.write_text('[]')
+            with patch.dict(os.environ,SCHEDULE_WIDGET_DATA_DIR=folder),patch.object(configure,'getpass',return_value=''),patch('builtins.input',return_value=''),patch('builtins.print'):
+                configure.main()
+            self.assertEqual(json.loads(path.read_text())['refresh_seconds'],120)
