@@ -97,3 +97,6 @@ class Hardening(unittest.TestCase):
         with patch.object(deadlines,'atomic_json') as write:
             with self.assertRaises(ValueError):deadlines.save_deadlines([a,b])
             write.assert_not_called()
+
+    def test_malformed_deadline_url(self):
+        self.assertEqual(deadlines.safe_assignment_url('https://[broken'),deadlines.ASSIGNMENTS_URL)

@@ -34,8 +34,11 @@ class Deadline:
 
 
 def safe_assignment_url(value):
-    url = urljoin(ASSIGNMENTS_URL, str(value or ''))
-    parsed = urlsplit(url)
+    try:
+        url = urljoin(ASSIGNMENTS_URL, str(value or ''))
+        parsed = urlsplit(url)
+    except ValueError:
+        return ASSIGNMENTS_URL
     if parsed.scheme != 'https' or parsed.hostname != 'lk.dataschool.yandex.ru':
         return ASSIGNMENTS_URL
     if parsed.username or parsed.password:
