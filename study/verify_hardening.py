@@ -41,3 +41,10 @@ class Hardening(unittest.TestCase):
         clock.value=math.nan;other=Timer(store,clock.read,clock.wall)
         other.start(cid,'2026-11-02');clock.value=110;other.tick();clock.value=112;other.pause()
         self.assertEqual(other.session_seconds,2)
+
+    def test_finite_report_totals(self):
+        categories=[{'id':1,'title':'A','color':COLORS[0]}]
+        for value in [math.inf,math.nan]:
+            report=build_report({(1,'2026-11-02'):value},categories,'day',date(2026,11,2))
+            self.assertEqual(report.total,0)
+            self.assertEqual(report.active_days,0)

@@ -1,5 +1,6 @@
 """Calendar ranges and study reports, computed only from recorded daily totals."""
 from calendar import monthrange
+import math
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -82,7 +83,7 @@ def build_report(totals, categories, mode, anchor, days_off=()):
     excluded = {date.fromisoformat(str(d)) for d in days_off}
     excluded_total = 0.0
     for (cid, raw_day), seconds in totals.items():
-        if cid not in category_ids or seconds <= 0:
+        if cid not in category_ids or not math.isfinite(seconds) or seconds <= 0:
             continue
         day = date.fromisoformat(raw_day)
         first = day if first is None else min(first, day)
