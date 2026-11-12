@@ -73,6 +73,8 @@ class TaskStore:
     def seed(self, entries, key='study-plan-2026-11-02'):
         with self.connection() as db:
             for index, entry in enumerate(entries):
+                if not isinstance(entry.get('title'),str) or not entry['title'].strip():
+                    raise ValueError('empty_task_title')
                 identity = 'local-' + hashlib.sha256(f'{key}/{index}'.encode()).hexdigest()[:24]
                 db.execute('''INSERT OR IGNORE INTO tasks(id,title,due,pending)
                               VALUES(?,?,?,'create')''', (identity, entry['title'], entry.get('due')))

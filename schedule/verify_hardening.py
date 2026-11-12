@@ -43,3 +43,8 @@ class Hardening(unittest.TestCase):
         store=self.store();store.merge([self.remote()]);before=store.items()
         with self.assertRaises(ValueError):store.merge([self.remote(due='not-a-date')],['list'])
         self.assertEqual(store.items(),before)
+
+    def test_blank_seed_title(self):
+        store=self.store()
+        with self.assertRaises(ValueError):store.seed([{'title':'   ','due':None}])
+        self.assertEqual(store.items(),[])
