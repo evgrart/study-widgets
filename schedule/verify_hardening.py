@@ -155,3 +155,14 @@ class Hardening(unittest.TestCase):
         for value in [None,'bad',float('inf')]:
             with patch.object(widget.CONFIG.__class__,'read_text',return_value=json.dumps({'refresh_seconds':value})):
                 self.assertEqual(widget.load_config()['refresh_seconds'],120)
+
+    def test_github_merge_email(self):
+        import sys
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
+        import check_privacy as privacy
+        def fake_git(*args):
+            return b'noreply@github.com' if args[0]=='log' else b''
+        with patch.object(privacy,'git',side_effect=fake_git),patch.object(sys,'argv',['check_privacy','--history']),patch('builtins.print'):
+            privacy.main()
+        self.assertEqual(privacy.check('README.md',b'noreply@github.com'),[])
+        self.assertIn('non-example email address',privacy.check('README.md',b'person'+b'@'+b'private.test'))
