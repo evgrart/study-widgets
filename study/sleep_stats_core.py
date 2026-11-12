@@ -2,6 +2,7 @@
 from datetime import date,timedelta
 import math
 import statistics
+from study_core import MOSCOW
 
 
 def timing(values):
@@ -38,7 +39,7 @@ def sleep_report(data,start,end,study_totals,days_off=()):
     recorded=[value for value in totals.values() if value is not None]
     primary=[max(group,key=lambda e:e['seconds']) for group in daily.values() if group]
     qualities=[e['quality'] for e in episodes if e['quality'] is not None]
-    today=data.wall().date()
+    today=data.wall().astimezone(MOSCOW).date()
     expected=sum(d<=today and data.groups.start(d)==d for d in days)
     completed_days=sum((bool(group) or bool(nap_daily[d])) and d<=today for d,group in daily.items())
     activity=data.activity_report(start,end,study_totals,days_off)

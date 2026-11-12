@@ -82,3 +82,9 @@ class Hardening(unittest.TestCase):
         data=SleepStore(store.db,wall=lambda:now)
         data.save(wake=now+timedelta(seconds=30),day=now.date())
         self.assertIsNone(data.report(now.date(),now.date())['average_wake'])
+
+    def test_sleep_expected_days_timezone(self):
+        store,cid=self.setup_store()
+        data=SleepStore(store.db,wall=lambda:datetime(2026,11,8,22,tzinfo=timezone.utc))
+        day=date(2026,11,9);report=sleep_report(data,day,day,{})
+        self.assertEqual(report['expected_days'],1)
