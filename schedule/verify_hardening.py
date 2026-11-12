@@ -82,3 +82,7 @@ class Hardening(unittest.TestCase):
         payload=b'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:empty\r\nDTSTART:20261102T100000\r\nDTEND:20261102T110000\r\nSUMMARY:   \r\nEND:VEVENT\r\nEND:VCALENDAR\r\n'
         events=calendar.week_events(calendar.parse_calendar(payload),date(2026,11,2))
         self.assertEqual(events[0].title,'Без названия')
+
+    def test_deadline_cache_root(self):
+        with patch.object(deadlines,'read_json',return_value=[]):
+            self.assertEqual(deadlines.load_deadlines(),([],None))

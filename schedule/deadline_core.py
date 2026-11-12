@@ -68,6 +68,7 @@ def read_json(path, default=None):
 
 def load_deadlines():
     data = read_json(CACHE, {})
+    if not isinstance(data,dict):return [],None
     try:
         return [from_dict(value) for value in data.get('items', [])], data.get('updated_at')
     except (KeyError, TypeError, ValueError):
