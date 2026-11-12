@@ -149,3 +149,9 @@ class Hardening(unittest.TestCase):
         import widget
         with patch.object(widget.CONFIG.__class__,'read_text',return_value='[1,2,3]'):
             self.assertEqual(widget.load_config()['refresh_seconds'],120)
+
+    def test_config_interval(self):
+        import widget
+        for value in [None,'bad',float('inf')]:
+            with patch.object(widget.CONFIG.__class__,'read_text',return_value=json.dumps({'refresh_seconds':value})):
+                self.assertEqual(widget.load_config()['refresh_seconds'],120)

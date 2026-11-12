@@ -49,7 +49,10 @@ def load_config():
     defaults = {"feed_url": "", "refresh_seconds": 120, "topmost": False, "autostart": False,
                 "desktop_mode": False, "shad_enabled": True}
     if isinstance(value,dict):defaults.update(value)
-    defaults["refresh_seconds"] = max(60, int(defaults["refresh_seconds"]))
+    try:
+        defaults["refresh_seconds"] = max(60, int(defaults["refresh_seconds"]))
+    except (ValueError,TypeError,OverflowError):
+        defaults["refresh_seconds"] = 120
     return defaults
 
 
