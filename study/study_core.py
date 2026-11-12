@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ctypes
+import math
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
@@ -105,6 +106,8 @@ class Store:
     def add_time(self, amounts):
         with self.db:
             for (category_id, day), seconds in amounts.items():
+                if isinstance(seconds,bool) or not isinstance(seconds,(int,float)) or not math.isfinite(seconds) or seconds<0:
+                    raise ValueError('invalid_study_duration')
                 if seconds > 0:
                     self.db.execute("""
                         INSERT INTO daily_totals(category_id,day,seconds) VALUES(?,?,?)
