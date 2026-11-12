@@ -151,7 +151,7 @@ class SleepStore:
 
     def set_sleepless(self,day,enabled):
         day=date.fromisoformat(str(day))
-        if enabled and day>=self.wall().date():raise ValueError('Выбери прошедший день: отметка объединит его со следующим.')
+        if enabled and day>=self.wall().astimezone(MOSCOW).date():raise ValueError('Выбери прошедший день: отметка объединит его со следующим.')
         self.groups.set(day,enabled);self.revision+=1
 
     def save_selected(self,bed,wake,row,day):

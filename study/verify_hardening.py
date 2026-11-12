@@ -70,3 +70,9 @@ class Hardening(unittest.TestCase):
         day=date(2026,11,2)
         report=sleep_report(data,day,day,{},iter([str(day)]))
         self.assertEqual(report['off_days'],(str(day),))
+
+    def test_sleepless_moscow_date(self):
+        store,cid=self.setup_store()
+        data=SleepStore(store.db,wall=lambda:datetime(2026,11,8,22,tzinfo=timezone.utc))
+        data.set_sleepless(date(2026,11,8),True)
+        self.assertIn('2026-11-08',data.groups.nights())
