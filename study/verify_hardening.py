@@ -20,3 +20,10 @@ class Hardening(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):store.add_time({(cid,'2026-11-02'):value})
         self.assertEqual(store.totals(),{})
+
+    def test_canonical_storage_dates(self):
+        store,cid=self.setup_store()
+        for value in ['invalid','2026-02-30','20261102']:
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):store.add_time({(cid,'2026-11-01'):10,(cid,value):20})
+                self.assertEqual(store.totals(),{})

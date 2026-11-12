@@ -106,6 +106,8 @@ class Store:
     def add_time(self, amounts):
         with self.db:
             for (category_id, day), seconds in amounts.items():
+                if not isinstance(day,str) or date.fromisoformat(day).isoformat()!=day:
+                    raise ValueError('invalid_study_date')
                 if isinstance(seconds,bool) or not isinstance(seconds,(int,float)) or not math.isfinite(seconds) or seconds<0:
                     raise ValueError('invalid_study_duration')
                 if seconds > 0:
