@@ -20,3 +20,10 @@ class Hardening(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             store=tasks.TaskStore(Path(folder)/'new'/'nested'/'tasks.db')
             self.assertEqual(store.items(),[])
+
+    def test_snapshot_iterator(self):
+        store=self.store();store.seed([{'title':'Lesson','due':'2026-11-02'}])
+        store.merge(iter([self.remote(list_id='~default')]),['~default'])
+        item=store.items()[0]
+        self.assertFalse(item.pending)
+        self.assertEqual(item.remote_id,'task')

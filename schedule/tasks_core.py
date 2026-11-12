@@ -88,6 +88,7 @@ class TaskStore:
 
     def merge(self, remote, complete_lists=()):
         """Keep queued local changes; merge a complete, authenticated remote snapshot."""
+        remote=list(remote)
         with self.connection() as db:
             # Recover safely after a process exit between remote creation and acknowledgement.
             pending = db.execute("SELECT * FROM tasks WHERE pending='create' AND remote_id IS NULL").fetchall()
