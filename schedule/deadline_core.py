@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 import json
 import os
+import uuid
 import re
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
@@ -60,7 +61,7 @@ def from_dict(value):
 
 def atomic_json(path, value):
     path.parent.mkdir(parents=True,exist_ok=True)
-    temporary = path.with_name(path.name + f'.{os.getpid()}.tmp')
+    temporary = path.with_name(path.name + f'.{os.getpid()}.{uuid.uuid4().hex}.tmp')
     try:
         temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False), encoding='utf-8')
         os.replace(temporary, path)

@@ -125,3 +125,22 @@ class Hardening(unittest.TestCase):
             with self.assertRaises(ValueError):deadlines.atomic_json(path,{'time':math.inf})
             self.assertEqual(path.read_text(),'{}')
             self.assertEqual(list(Path(folder).glob('*.tmp')),[])
+
+    def test_concurrent_json_snapshots(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'status.json';barrier=threading.Barrier(2);errors=[];original=deadlines.os.replace
+            writer=threading.local()
+            def replace(source,target):
+                barrier.wait(timeout=5)
+                self.assertEqual(json.loads(source.read_text())['value'],writer.value)
+                original(source,target)
+            def write(value):
+                writer.value=value
+                try:deadlines.atomic_json(path,{'value':value})
+                except Exception as error:errors.append(error)
+            with patch.object(deadlines.os,'replace',side_effect=replace):
+                threads=[threading.Thread(target=write,args=(i,)) for i in range(2)]
+                for thread in threads:thread.start()
+                for thread in threads:thread.join(timeout=10)
+            self.assertEqual(errors,[])
+            self.assertIn(json.loads(path.read_text())['value'],[0,1])
