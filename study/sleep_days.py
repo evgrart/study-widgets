@@ -296,7 +296,7 @@ class SleepStore:
                     latency_minutes=self.latency_minutes,
                     average_seconds=sum(durations)/len(durations) if durations else None,
                     average_bed=clock_average(r['bed_at'] for r in rows if r['bed_at'] and stamp(r['bed_at'])<=self.wall()),
-                    average_wake=clock_average(r['wake_at'] for r in rows))
+                    average_wake=clock_average(r['wake_at'] for r in rows if r['wake_at'] and stamp(r['wake_at'])<=self.wall()))
 
     def activity_report(self,start,end,study_totals,days_off=()):
         if start==end:start=end=self.groups.start(start)

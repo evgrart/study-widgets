@@ -76,3 +76,9 @@ class Hardening(unittest.TestCase):
         data=SleepStore(store.db,wall=lambda:datetime(2026,11,8,22,tzinfo=timezone.utc))
         data.set_sleepless(date(2026,11,8),True)
         self.assertIn('2026-11-08',data.groups.nights())
+
+    def test_future_wake_average(self):
+        store,cid=self.setup_store();now=datetime(2026,11,2,10,tzinfo=MOSCOW)
+        data=SleepStore(store.db,wall=lambda:now)
+        data.save(wake=now+timedelta(seconds=30),day=now.date())
+        self.assertIsNone(data.report(now.date(),now.date())['average_wake'])
