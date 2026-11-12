@@ -78,7 +78,11 @@ def load_deadlines():
 
 def save_deadlines(items):
     # Each successful fetch replaces the previous snapshot, including deletions.
-    unique = {item.uid: item for item in items}
+    unique = {}
+    for item in items:
+        if item.uid in unique and unique[item.uid]!=item:
+            raise ValueError('conflicting_deadline_ids')
+        unique[item.uid]=item
     atomic_json(CACHE, {'updated_at': datetime.now(MOSCOW).isoformat(),
                         'items': [item.to_dict() for item in unique.values()]})
 

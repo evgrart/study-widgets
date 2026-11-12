@@ -90,3 +90,10 @@ class Hardening(unittest.TestCase):
     def test_deadline_cache_items(self):
         with patch.object(deadlines,'read_json',return_value={'items':[None]}):
             self.assertEqual(deadlines.load_deadlines(),([],None))
+
+    def test_conflicting_deadline_ids(self):
+        a=deadlines.Deadline('same','First','Course',None,deadlines.ASSIGNMENTS_URL)
+        b=deadlines.Deadline('same','Other','Course',None,deadlines.ASSIGNMENTS_URL)
+        with patch.object(deadlines,'atomic_json') as write:
+            with self.assertRaises(ValueError):deadlines.save_deadlines([a,b])
+            write.assert_not_called()
