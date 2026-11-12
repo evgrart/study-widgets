@@ -28,6 +28,7 @@ class Task:
 class TaskStore:
     def __init__(self, path=DATABASE):
         self.path = Path(path)
+        self.path.parent.mkdir(parents=True,exist_ok=True)
         with self.connection() as db:
             db.execute('''CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, due TEXT,

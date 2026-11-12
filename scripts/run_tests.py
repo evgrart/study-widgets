@@ -6,7 +6,7 @@ ROOT=Path(__file__).resolve().parents[1]
 TESTS={
     'study':['verify_timer','verify_stats','verify_sleep','verify_sleep_days','verify_sleep_stats',
              'verify_days_off','verify_sleepless','verify_naps','verify_category_clear'],
-    'schedule':['verify_widget','verify_deadlines','verify_tasks','verify_tasks_headless','verify_tasks_login'],
+    'schedule':['verify_hardening','verify_widget','verify_deadlines','verify_tasks','verify_tasks_headless','verify_tasks_login'],
 }
 GUI={'study':['verify_gui.py','verify_selected_day.py','verify_category_clear_gui.py',
               'verify_sleepless_gui.py','verify_naps_gui.py'],
