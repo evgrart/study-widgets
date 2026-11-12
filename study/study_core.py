@@ -26,7 +26,11 @@ def awake_seconds():
 
 
 def format_time(seconds):
-    seconds = max(0, int(seconds))
+    try:
+        if not math.isfinite(seconds):return '—'
+        seconds = max(0, int(seconds))
+    except (ValueError,TypeError,OverflowError):
+        return '—'
     hours, seconds = divmod(seconds, 3600)
     minutes, seconds = divmod(seconds, 60)
     return f"{hours:02}:{minutes:02}:{seconds:02}"

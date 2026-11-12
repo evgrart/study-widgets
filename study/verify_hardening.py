@@ -48,3 +48,8 @@ class Hardening(unittest.TestCase):
             report=build_report({(1,'2026-11-02'):value},categories,'day',date(2026,11,2))
             self.assertEqual(report.total,0)
             self.assertEqual(report.active_days,0)
+
+    def test_format_invalid_durations(self):
+        for value in [math.nan,math.inf,None,'bad']:
+            self.assertEqual(format_time(value),'—')
+        self.assertEqual(format_time(-5),'00:00:00')
