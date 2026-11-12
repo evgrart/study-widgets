@@ -44,6 +44,7 @@ def safe_assignment_url(value):
 
 
 def from_dict(value):
+    if not isinstance(value,dict):raise ValueError('invalid_deadline_record')
     raw = value.get('due')
     due = datetime.fromisoformat(raw) if raw else None
     if due:

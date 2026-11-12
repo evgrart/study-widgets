@@ -86,3 +86,7 @@ class Hardening(unittest.TestCase):
     def test_deadline_cache_root(self):
         with patch.object(deadlines,'read_json',return_value=[]):
             self.assertEqual(deadlines.load_deadlines(),([],None))
+
+    def test_deadline_cache_items(self):
+        with patch.object(deadlines,'read_json',return_value={'items':[None]}):
+            self.assertEqual(deadlines.load_deadlines(),([],None))
