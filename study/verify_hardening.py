@@ -58,3 +58,9 @@ class Hardening(unittest.TestCase):
         store,cid=self.setup_store()
         self.assertEqual(store.groups.start(date.min),date.min)
         self.assertEqual(store.groups.end(date.min),date.min)
+
+    def test_maximum_sleepless_date(self):
+        store,cid=self.setup_store()
+        with self.assertRaises(ValueError):store.groups.set(date.max,True)
+        with store.db:store.db.execute('INSERT INTO sleepless_nights VALUES(?)',(str(date.max),))
+        self.assertEqual(store.groups.end(date.max),date.max)

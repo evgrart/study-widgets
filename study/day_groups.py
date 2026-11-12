@@ -19,11 +19,12 @@ class DayGroups:
 
     def end(self,day):
         day=self.start(day);nights=self.nights()
-        while day.isoformat() in nights:day+=timedelta(days=1)
+        while day<date.max and day.isoformat() in nights:day+=timedelta(days=1)
         return day
 
     def set(self,day,enabled):
         day=date.fromisoformat(str(day)).isoformat()
+        if enabled and day==date.max.isoformat():raise ValueError('No following day is available.')
         with self.db:
             if enabled:self.db.execute('INSERT OR IGNORE INTO sleepless_nights(day) VALUES(?)',(day,))
             else:self.db.execute('DELETE FROM sleepless_nights WHERE day=?',(day,))
