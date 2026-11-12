@@ -33,3 +33,11 @@ class Hardening(unittest.TestCase):
         timer.start(cid,'2026-11-02');clock.value=90;timer.tick();clock.value=100;timer.tick()
         self.assertEqual(timer.category_time(cid),0)
         clock.value=105;timer.pause();self.assertEqual(timer.category_time(cid),5)
+
+    def test_invalid_clock_readings(self):
+        store,cid=self.setup_store();clock=Clock();timer=Timer(store,clock.read,clock.wall)
+        timer.start(cid,'2026-11-02');clock.value=math.inf;timer.tick()
+        clock.value=105;timer.pause();self.assertEqual(timer.category_time(cid),5)
+        clock.value=math.nan;other=Timer(store,clock.read,clock.wall)
+        other.start(cid,'2026-11-02');clock.value=110;other.tick();clock.value=112;other.pause()
+        self.assertEqual(other.session_seconds,2)

@@ -151,11 +151,16 @@ class Timer:
         self.session_seconds = 0.0
         self.totals = store.totals()
         self.pending = {}
-        self._last = clock()
+        reading=clock()
+        self._last = reading if math.isfinite(reading) else None
         self._saved_at = time.monotonic()
 
     def tick(self):
         current = self.clock()
+        if not math.isfinite(current):return
+        if self._last is None:
+            self._last=current
+            return
         elapsed = max(0.0, current - self._last)
         self._last = max(self._last,current)
         if self.active is None or elapsed <= 0:
