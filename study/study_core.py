@@ -157,7 +157,7 @@ class Timer:
     def tick(self):
         current = self.clock()
         elapsed = max(0.0, current - self._last)
-        self._last = current
+        self._last = max(self._last,current)
         if self.active is None or elapsed <= 0:
             return
         if self.active_day is not None:

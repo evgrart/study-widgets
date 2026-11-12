@@ -27,3 +27,9 @@ class Hardening(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):store.add_time({(cid,'2026-11-01'):10,(cid,value):20})
                 self.assertEqual(store.totals(),{})
+
+    def test_backward_clock(self):
+        store,cid=self.setup_store();clock=Clock();timer=Timer(store,clock.read,clock.wall)
+        timer.start(cid,'2026-11-02');clock.value=90;timer.tick();clock.value=100;timer.tick()
+        self.assertEqual(timer.category_time(cid),0)
+        clock.value=105;timer.pause();self.assertEqual(timer.category_time(cid),5)
