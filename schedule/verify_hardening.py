@@ -100,3 +100,8 @@ class Hardening(unittest.TestCase):
 
     def test_malformed_deadline_url(self):
         self.assertEqual(deadlines.safe_assignment_url('https://[broken'),deadlines.ASSIGNMENTS_URL)
+
+    def test_unexpected_deadline_port(self):
+        for url in ['https://lk.dataschool.yandex.ru:444/other','https://lk.dataschool.yandex.ru:bad/other']:
+            self.assertEqual(deadlines.safe_assignment_url(url),deadlines.ASSIGNMENTS_URL)
+        self.assertEqual(deadlines.safe_assignment_url('/learning/assignments/12/'),deadlines.ASSIGNMENTS_URL+'12/')

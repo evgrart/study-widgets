@@ -37,6 +37,7 @@ def safe_assignment_url(value):
     try:
         url = urljoin(ASSIGNMENTS_URL, str(value or ''))
         parsed = urlsplit(url)
+        if parsed.port not in (None,443):return ASSIGNMENTS_URL
     except ValueError:
         return ASSIGNMENTS_URL
     if parsed.scheme != 'https' or parsed.hostname != 'lk.dataschool.yandex.ru':
