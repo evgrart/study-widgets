@@ -105,3 +105,8 @@ class Hardening(unittest.TestCase):
         for url in ['https://lk.dataschool.yandex.ru:444/other','https://lk.dataschool.yandex.ru:bad/other']:
             self.assertEqual(deadlines.safe_assignment_url(url),deadlines.ASSIGNMENTS_URL)
         self.assertEqual(deadlines.safe_assignment_url('/learning/assignments/12/'),deadlines.ASSIGNMENTS_URL+'12/')
+
+    def test_atomic_json_parent(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'new'/'status.json';deadlines.atomic_json(path,{'ok':True})
+            self.assertEqual(json.loads(path.read_text()),{'ok':True})
