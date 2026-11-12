@@ -118,3 +118,10 @@ class Hardening(unittest.TestCase):
                 with self.assertRaises(OSError):deadlines.atomic_json(path,{'new':True})
             self.assertEqual(path.read_text(),'old')
             self.assertEqual(list(Path(folder).glob('*.tmp')),[])
+
+    def test_atomic_json_finite(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'status.json';path.write_text('{}')
+            with self.assertRaises(ValueError):deadlines.atomic_json(path,{'time':math.inf})
+            self.assertEqual(path.read_text(),'{}')
+            self.assertEqual(list(Path(folder).glob('*.tmp')),[])
