@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 import hashlib
+import json
 import sqlite3
 
 from app_paths import ROOT, CODE_ROOT
@@ -123,7 +124,7 @@ class TaskStore:
                                    (r['title'], due, completed, r['list_title'],
                                     r.get('date_label', ''), old['id']))
                 else:
-                    identity = 'remote-' + hashlib.sha256('/'.join(key).encode()).hexdigest()[:24]
+                    identity = 'remote-' + hashlib.sha256(json.dumps(key,separators=(',',':')).encode()).hexdigest()[:24]
                     db.execute('''INSERT INTO tasks(id,title,due,completed,remote_id,list_id,list_title,date_label)
                                   VALUES(?,?,?,?,?,?,?,?)''',
                                (identity, r['title'], r.get('due'), r['completed'], r['remote_id'],

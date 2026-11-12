@@ -32,3 +32,9 @@ class Hardening(unittest.TestCase):
         store=self.store();store.merge([self.remote(remote_id=str(i),list_id='a') for i in range(3)],['a'])
         store.merge([],iter(['a']))
         self.assertEqual(store.items(),[])
+
+    def test_remote_identity_delimiters(self):
+        store=self.store()
+        store.merge([self.remote(list_id='a/b',remote_id='c'),self.remote(list_id='a',remote_id='b/c')])
+        self.assertEqual(len(store.items()),2)
+        self.assertEqual(len({t.id for t in store.items()}),2)
