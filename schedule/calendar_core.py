@@ -86,6 +86,7 @@ def arrange(events, day):
     begin = datetime.combine(day, time.min, MOSCOW)
     finish = begin + timedelta(days=1)
     items = [(e, max(e.start, begin), min(e.end, finish)) for e in events]
+    items = [item for item in items if item[1] < item[2]]
     items.sort(key=lambda item: (item[1], item[2], item[0].title))
     groups, current, limit = [], [], None
     for item in items:

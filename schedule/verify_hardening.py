@@ -58,3 +58,10 @@ class Hardening(unittest.TestCase):
     def test_toggle_deleted_task(self):
         store=self.store()
         with self.assertRaises(ValueError):store.toggle('missing')
+
+
+    def test_layout_clipped_intervals(self):
+        day=date(2026,11,2);start=datetime(2026,11,2,10,tzinfo=calendar.MOSCOW)
+        events=[calendar.Appointment('outside','Old',start-timedelta(days=2),start-timedelta(days=1)),
+        calendar.Appointment('invalid','Reversed',start,start-timedelta(hours=1))]
+        self.assertEqual(calendar.arrange(events,day),[])
