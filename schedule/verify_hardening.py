@@ -144,3 +144,8 @@ class Hardening(unittest.TestCase):
                 for thread in threads:thread.join(timeout=10)
             self.assertEqual(errors,[])
             self.assertIn(json.loads(path.read_text())['value'],[0,1])
+
+    def test_config_object(self):
+        import widget
+        with patch.object(widget.CONFIG.__class__,'read_text',return_value='[1,2,3]'):
+            self.assertEqual(widget.load_config()['refresh_seconds'],120)
