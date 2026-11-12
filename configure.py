@@ -2,8 +2,19 @@
 from getpass import getpass
 import importlib.util
 import json
+import os
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
+
+
+def write_json(path,value):
+    temporary=path.with_name(path.name+'.'+uuid.uuid4().hex+'.tmp')
+    try:
+        temporary.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding='utf-8')
+        os.replace(temporary,path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def main():
@@ -21,11 +32,11 @@ def main():
         config['feed_url']=url
     if 'feed_url' not in config:config['feed_url']=''
     config.setdefault('refresh_seconds',120)
-    config_path.write_text(json.dumps(config,ensure_ascii=False,indent=2),encoding='utf-8')
+    write_json(config_path,config)
     email=input('Google Tasks account email (blank: keep current): ').strip()
     if email:
         if '@' not in email or '\n' in email:raise SystemExit('Invalid email.')
-        (paths.ROOT/'google-tasks-account.json').write_text(json.dumps({'email':email}),encoding='utf-8')
+        write_json(paths.ROOT/'google-tasks-account.json',{'email':email})
     print('Saved locally. Open Schedule, then connect Google Tasks or LMS SHAD in its sidebar.')
 
 

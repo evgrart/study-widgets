@@ -176,3 +176,18 @@ class Hardening(unittest.TestCase):
             with patch.dict(os.environ,SCHEDULE_WIDGET_DATA_DIR=folder),patch.object(configure,'getpass',return_value=''),patch('builtins.input',return_value=''),patch('builtins.print'):
                 configure.main()
             self.assertEqual(json.loads(path.read_text())['refresh_seconds'],120)
+
+    def test_configure_interrupted_write(self):
+        import sys,os
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+        import configure
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'config.json';before='{"refresh_seconds": 3600}';path.write_text(before)
+            original=Path.write_text
+            def interrupted(target,content,*args,**kwargs):
+                original(target,content[:2],*args,**kwargs)
+                raise OSError('simulated disk failure')
+            with patch.dict(os.environ,SCHEDULE_WIDGET_DATA_DIR=folder),patch.object(configure,'getpass',return_value=''),patch('builtins.input',return_value=''),patch.object(Path,'write_text',interrupted):
+                with self.assertRaises(OSError):configure.main()
+            self.assertEqual(path.read_text(),before)
+            self.assertEqual(list(Path(folder).glob('*.tmp')),[])
